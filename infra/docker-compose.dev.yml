@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: amilyhub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: amilyhub
+      POSTGRES_PASSWORD: alpha128128
+      POSTGRES_DB: amilyhub_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - amilyhub_postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+
+volumes:
+  amilyhub_postgres_data:
