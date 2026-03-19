@@ -16,3 +16,7 @@
 - Executed round-3 hidden action scan (export/detail/print/edit).
 - Captured export async chain and detail-page endpoints for order/class/student/teacher/rollcall modules.
 - Saved round-3 raw artifact: `docs/api-catalog/raw/2026-03-20-round3-hidden-actions.json`.
+- Executed round-4 safe mutation/upload probe (no final submit).
+- Confirmed operation-log API endpoint: `/business/public/opaudit/list`.
+- Import-entry probes for 学员/班级 did not emit upload preflight API at click-only depth.
+- Saved round-4 raw artifact: `docs/api-catalog/raw/2026-03-20-round4-mutation-upload-probe.json`.

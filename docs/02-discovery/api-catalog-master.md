@@ -176,9 +176,20 @@
 - 收支明细：✅ list/sum 主链路已抓
 - 班级：✅ list/export 主链路已抓
 
+## Round 4 - Mutation/Upload Probe (safe, no final submit)
+
+新增确认：
+- 订单详情“操作日志”
+  - `POST /business/public/opaudit/list`
+  - keys: `current,size,targetId`
+
+探测结论：
+- “发起合同/作废订单”入口已触发，但未执行最终确认提交（避免破坏生产数据）。
+- “导入学员/导入班级”点击后未观察到立即上传 preflight 接口，推断需要文件选择器后才发请求。
+
 ## Remaining Risk / TODO (to reach no-omission)
-1. Capture mutation endpoints explicitly (create/update/delete/void/cancel/undo) by opening dialogs and observing pre-submit APIs.
-2. Capture "操作日志"、"课后点评"、"发起合同"等动作接口并做路径归档。
-3. Capture import flow preflight/upload-task APIs (if any) without submitting destructive actions.
+1. Under controlled sandbox account (or mock tenant), perform final-step submit capture for mutation APIs: create/update/delete/void/cancel/undo.
+2. Capture import full链路: file-select -> upload -> task polling -> result download.
+3. Capture "课后点评"、"发起合同" actions with non-destructive dry-run payloads.
 4. Build normalized endpoint matrix (`method + path`) with request sample and response top-level schema.
 5. Add entity-to-endpoint mapping table for迁移脚本设计: student, teacher, class, course, order, payment, rollcall, hour-cost-flow, income-expense.

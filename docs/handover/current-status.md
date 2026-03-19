@@ -11,11 +11,11 @@
 - Deep scan completed for key domains: 学生/老师/订单/上课记录/收支明细/课消记录.
 
 ## In Progress
-- Mutation endpoint coverage (create/update/delete/void/undo) and import/upload chain capture.
+- Final missing parts: import upload chain + submit-stage mutation APIs.
 
 ## Next Actions
-1. Continue on key modules: capture 操作日志 / 课后点评 / 发起合同 / 作废订单 actions.
-2. For import features (学员/班级), capture upload preflight/task polling endpoints without final destructive submit.
+1. Use a safe test tenant/account to capture final-submit mutation endpoints (void/create/update/delete) without business risk.
+2. Capture import full flow endpoints: upload preflight, file upload, async task polling, result retrieval.
 3. Build deduplicated endpoint matrix with method/path/params/response-top-level fields.
 4. Start exporter design doc with checkpoint + retry + incremental strategy.
 
