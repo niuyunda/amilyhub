@@ -13,3 +13,6 @@
 - Executed deep scan (Round 2) on key data modules: students, teachers, orders, class records, income/expense, course consumption.
 - Added method + body-key captures from live interactions (search/pagination/detail navigation).
 - Saved deep scan raw artifact: `docs/api-catalog/raw/2026-03-20-deep-scan-key-modules.json`.
+- Executed round-3 hidden action scan (export/detail/print/edit).
+- Captured export async chain and detail-page endpoints for order/class/student/teacher/rollcall modules.
+- Saved round-3 raw artifact: `docs/api-catalog/raw/2026-03-20-round3-hidden-actions.json`.

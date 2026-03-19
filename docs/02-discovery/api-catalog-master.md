@@ -142,9 +142,43 @@
 - `docs/api-catalog/raw/2026-03-20-initial-page-scan.json`
 - `docs/api-catalog/raw/2026-03-20-deep-scan-key-modules.json`
 
+## Round 3 - Hidden Action APIs (export/detail/print/edit)
+
+新增关键接口：
+- 订单导出与下载链路
+  - `POST /business/public/order/exportAsync`
+  - `POST /business/public/export/getById`
+- 订单打印详情
+  - `POST /business/public/order/getVoucherDetail`
+  - `POST /business/public/inst/getInst`
+  - `POST /business/public/config/voucherStyleConfig`
+- 上课记录详情页
+  - `POST /business/public/rollCall/queryRollCallDetailCheckPermission`
+  - `POST /business/public/class/getClassDetail`
+  - `POST /apollo/public/apollo/getRelationByRelationId`
+- 老师编辑/员工详情页
+  - `POST /business/public/admin/getAdminExdInfo`
+  - `POST /business/public/inst/getAllRole`
+  - `POST /business/public/admin/getInstAdminExdOnePage`
+  - `POST /business/public/inst/allPermissionGroup`
+  - `POST /business/public/inst/queryPermissionConfigByRoleIds`
+- 学员导出
+  - `POST /business/public/student/exportNormalStudentCheckPermission`
+- 班级导出
+  - `POST /business/public/class/exportClass`
+
+## Core Data Coverage Checklist (current)
+- 学生：✅ list/search/history/export 主链路已抓
+- 老师：✅ list/search/detail(编辑页) 主链路已抓
+- 订单：✅ list/detail/export/print/审批链 主链路已抓
+- 上课记录：✅ list/detail 主链路已抓
+- 课消记录：✅ list/sum/search student 主链路已抓
+- 收支明细：✅ list/sum 主链路已抓
+- 班级：✅ list/export 主链路已抓
+
 ## Remaining Risk / TODO (to reach no-omission)
-1. Trigger create/edit dialogs for students, classes, courses, teachers, orders and capture mutation APIs.
-2. Trigger export/import buttons per module and capture async task/download endpoints.
-3. Open row-level “详情/编辑/操作日志/课后点评”等 action links and record extra detail APIs.
-4. Build a normalized table (`method + path`) with request sample and response top-level schema.
-5. Add data-domain mapping to ensure no core entity遗漏: student, teacher, class, course, order, payment, rollcall, hour-cost-flow, income-expense.
+1. Capture mutation endpoints explicitly (create/update/delete/void/cancel/undo) by opening dialogs and observing pre-submit APIs.
+2. Capture "操作日志"、"课后点评"、"发起合同"等动作接口并做路径归档。
+3. Capture import flow preflight/upload-task APIs (if any) without submitting destructive actions.
+4. Build normalized endpoint matrix (`method + path`) with request sample and response top-level schema.
+5. Add entity-to-endpoint mapping table for迁移脚本设计: student, teacher, class, course, order, payment, rollcall, hour-cost-flow, income-expense.
