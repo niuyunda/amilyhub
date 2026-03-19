@@ -10,3 +10,6 @@
   - 财务中心: 订单管理/收支明细/课消记录
 - Saved sanitized raw capture: `docs/api-catalog/raw/2026-03-20-initial-page-scan.json`.
 - Updated master endpoint document: `docs/02-discovery/api-catalog-master.md`.
+- Executed deep scan (Round 2) on key data modules: students, teachers, orders, class records, income/expense, course consumption.
+- Added method + body-key captures from live interactions (search/pagination/detail navigation).
+- Saved deep scan raw artifact: `docs/api-catalog/raw/2026-03-20-deep-scan-key-modules.json`.

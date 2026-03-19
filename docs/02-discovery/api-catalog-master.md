@@ -1,6 +1,6 @@
 # API Catalog Master (Source SaaS)
 
-> Status: Phase-1 initial capture complete (menu-level page scan).
+> Status: Phase-1 second-pass deep scan in progress (key modules validated with method + body keys).
 
 ## Collection Method
 - Google Chrome (user profile, logged-in SaaS account)
@@ -90,12 +90,61 @@
 - `/finance/public/cashierWallet/checkProtocolWhiteList`
 - `/finance/public/xmpay/getInstChannelStatus`
 
-## Raw Artifact
-- `docs/api-catalog/raw/2026-03-20-initial-page-scan.json`
+## Deep Scan - Key Business Data Endpoints (Round 2)
 
-## Next-pass TODO (required to reach "no omission")
-1. For each page, trigger **search/filter/pagination** and capture additional APIs.
-2. Trigger **create/edit/delete/import/export** actions (if available) to capture mutation endpoints.
-3. Capture request method + request/response schema samples.
-4. Build deduplicated endpoint table with fields:
-   - service prefix, path, method, auth mode, key params, pagination mode, business owner module.
+### 订单（高优先）
+- `POST /business/public/order/searchPage`
+  - keys: `bizAccountId,size,current,businessStates,businessTypes,businessOwnerIds,sortType,createdStart,createdEnd,businessNo,isStudentEntrance`
+- `POST /business/public/order/sumVouchersFee`
+  - keys: same as searchPage
+- `POST /business/public/order/getVoucherDetailCheckPermission`
+  - keys: `voucherId`
+- `POST /business/public/order/checkBusinessVoucherHasEleContract`
+  - keys: `instId,voucherId`
+- `POST /business/public/voucherApproval/getDetailBySubjectId`
+  - keys: `id`
+- `POST /business/public/voucherApproval/getApprovalChainNodes`
+  - keys: `id`
+
+### 学生（高优先）
+- `POST /business/public/student/getLearningStudentPage`
+  - keys: `current,size,status,basicRequest,expandRequest,timeRangeRequest,filterRequest,tagAndAttrRequest`
+- `POST /business/public/student/getStuByNamePhoneCheckPermission`
+  - keys: `statusList,nameLike,phoneLike,studentId,current,size,instId`
+- supporting lookups:
+  - `POST /business/public/studentTag/getTagList`
+  - `POST /business/public/attr/getInstAttrList`
+  - `POST /business/public/admin/getAccountList`
+  - `POST /business/public/sms/getInstSmsWarningInfo`
+
+### 老师（高优先）
+- `POST /business/public/teacher/getTeacherBuffPage`
+  - keys (list): `current,size`
+  - keys (search): `current,size,nameOrPhone`
+
+### 上课记录（高优先）
+- `POST /business/public/rollCall/queryInstRollCalls`
+  - keys: `current,size,stateFilter,rollCallDateStart,rollCallDateEnd,stateList`
+
+### 财务收支（高优先）
+- `POST /business/public/instIncomeExpense/queryOnePage`
+  - keys: `current,size,discardFlag,operationDateStart,operationDateEnd`
+- `POST /business/public/instIncomeExpense/amountSum`
+  - keys: same as queryOnePage
+
+### 课消记录（高优先）
+- `POST /business/public/studentHourCostFlow/queryPage`
+  - keys: `checkedDateStart,checkedDateEnd,current,size,justValid,createdEnd`
+- `POST /business/public/studentHourCostFlow/sum`
+  - keys: same as queryPage
+
+## Raw Artifacts
+- `docs/api-catalog/raw/2026-03-20-initial-page-scan.json`
+- `docs/api-catalog/raw/2026-03-20-deep-scan-key-modules.json`
+
+## Remaining Risk / TODO (to reach no-omission)
+1. Trigger create/edit dialogs for students, classes, courses, teachers, orders and capture mutation APIs.
+2. Trigger export/import buttons per module and capture async task/download endpoints.
+3. Open row-level “详情/编辑/操作日志/课后点评”等 action links and record extra detail APIs.
+4. Build a normalized table (`method + path`) with request sample and response top-level schema.
+5. Add data-domain mapping to ensure no core entity遗漏: student, teacher, class, course, order, payment, rollcall, hour-cost-flow, income-expense.
