@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
 import { DataTable, type ColumnDef } from "@/components/common/data-table";
 import { DetailSheet } from "@/components/common/detail-sheet";
 import { Pager } from "@/components/common/pager";
@@ -74,20 +73,24 @@ export default function StudentsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "在读" | "停课" | "结课">("all");
   const [selected, setSelected] = useState<Student | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<StudentProfileLite | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<StudentFormState>(DEFAULT_FORM);
 
-  const load = useCallback(async (nextPage: number) => {
+  const load = useCallback(async (
+    nextPage: number,
+    overrides?: { keyword?: string; statusFilter?: "all" | "在读" | "停课" | "结课" },
+  ) => {
     setStatus("loading");
+    const q = overrides?.keyword ?? keyword;
+    const sf = overrides?.statusFilter ?? statusFilter;
     const result = await getStudents({
       page: nextPage,
       pageSize: PAGE_SIZE,
-      keyword: keyword || undefined,
-      status: statusFilter === "all" ? undefined : statusFilter,
+      keyword: q || undefined,
+      status: sf === "all" ? undefined : sf,
     });
     if (result.kind === "forbidden") {
       setStatus("forbidden");
@@ -227,22 +230,6 @@ export default function StudentsPage() {
     }
   };
 
-  const onSuspend = async () => {
-    if (!selected) return;
-    try {
-      const result = await updateStudent(selected.id, { status: "停课" });
-      if (result.kind === "forbidden") {
-        setStatus("forbidden");
-        return;
-      }
-      toast.success(`已停课：${selected.name}`);
-      await load(page);
-      setConfirmOpen(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "停课失败");
-    }
-  };
-
   const exportCsv = () => {
     const header = ["学员ID", "学员姓名", "手机号", "状态", "所在班级", "年龄", "创建时间"];
     const lines = rows.map((r) => [r.id, r.name, r.phone, r.status, r.className, r.age ?? "", r.createdAt]);
@@ -275,10 +262,10 @@ export default function StudentsPage() {
           </div>
 
           <div className="flex flex-wrap gap-2 text-sm">
-            <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1); }}>全部学员（{statusStats.all}）</Button>
-            <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1); }}>在读学员（{statusStats.active}）</Button>
-            <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1); }}>停课学员（{statusStats.suspended}）</Button>
-            <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1); }}>结课学员（{statusStats.ended}）</Button>
+            <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1, { statusFilter: "all" }); }}>全部学员（{statusStats.all}）</Button>
+            <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1, { statusFilter: "在读" }); }}>在读学员（{statusStats.active}）</Button>
+            <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1, { statusFilter: "停课" }); }}>停课学员（{statusStats.suspended}）</Button>
+            <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1, { statusFilter: "结课" }); }}>结课学员（{statusStats.ended}）</Button>
           </div>
 
           <div className="space-y-2">
@@ -290,7 +277,7 @@ export default function StudentsPage() {
                 onClick={() => {
                   setKeyword("");
                   setStatusFilter("all");
-                  void load(1);
+                  void load(1, { keyword: "", statusFilter: "all" });
                 }}
               >
                 重置
@@ -307,26 +294,7 @@ export default function StudentsPage() {
 
       {status === "ready" ? (
         <>
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <DataTable rows={rows} columns={columns} onRowClick={(row) => setSelected(row)} />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    if (!selected) {
-                      toast.warning("请先点击一行学员");
-                      return;
-                    }
-                    setConfirmOpen(true);
-                  }}
-                >
-                  停课
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
+          <DataTable rows={rows} columns={columns} onRowClick={(row) => setSelected(row)} />
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
         </>
       ) : null}
@@ -393,14 +361,6 @@ export default function StudentsPage() {
         onSubmit={onEdit}
       />
 
-      <ConfirmActionDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="确认停课"
-        description="停课后该学员将从在读学员中移除。"
-        confirmText="确认停课"
-        onConfirm={() => { void onSuspend(); }}
-      />
     </div>
   );
 }
