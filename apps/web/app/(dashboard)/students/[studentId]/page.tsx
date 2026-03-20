@@ -37,6 +37,7 @@ type ProfileData = {
     class_name: string;
     course_name: string;
     teacher_names: string;
+    order_no: string;
     consumed_lessons: number;
     checked_at: string | null;
   }>;
@@ -48,6 +49,17 @@ type ProfileData = {
     amount_cents: number;
     operation_date: string | null;
     source_created_at: string | null;
+  }>;
+  order_logs?: Array<{
+    order_no: string;
+    item_info: string;
+    receivable_cents: number;
+    received_cents: number;
+    order_state: string;
+    business_type: string;
+    owner_name: string;
+    created_at: string | null;
+    paid_at: string | null;
   }>;
 };
 
@@ -78,6 +90,15 @@ function mapStatus(v?: string | null): string {
   if (["NORMAL", "LEARNING", "在读", "ACTIVE"].includes(v)) return "在读";
   if (["SUSPENDED", "PAUSED", "停课"].includes(v)) return "停课";
   return "结课";
+}
+
+function displayReceivable(receivableCents: number, receivedCents: number): number {
+  return receivableCents > 0 ? receivableCents : receivedCents;
+}
+
+function formatTeacherNames(v?: string | null): string {
+  if (!v) return "-";
+  return String(v).replace(/[\[\]"]/g, "");
 }
 
 export default function StudentDetailPage() {
@@ -118,7 +139,7 @@ export default function StudentDetailPage() {
 
   const summary = useMemo(() => {
     const paidYuan = orders.reduce((sum, o) => sum + o.paidYuan, 0);
-    const receivableYuan = orders.reduce((sum, o) => sum + o.receivableYuan, 0);
+    const receivableYuan = orders.reduce((sum, o) => sum + (o.receivableYuan > 0 ? o.receivableYuan : o.paidYuan), 0);
     const remainLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.remain_lessons ?? 0), 0);
     const consumedLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.consumed_lessons ?? 0), 0);
     const purchasedLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.purchased_lessons ?? 0) + Number(x.gift_lessons ?? 0), 0);
@@ -136,22 +157,6 @@ export default function StudentDetailPage() {
     const rows = profile?.courses ?? [];
     return showAllCourses ? rows : rows.slice(0, 2);
   }, [profile, showAllCourses]);
-
-  const paymentRows = useMemo(() => {
-    const raw = profile?.payments ?? [];
-    if (raw.length) return raw;
-    return orders
-      .filter((o) => o.paidYuan > 0 || o.receivableYuan > 0)
-      .map((o) => ({
-        source_id: `ORDER-${o.orderNo}`,
-        source_order_id: o.orderNo,
-        item_type: "订单收款",
-        direction: "收入",
-        amount_cents: Math.round((o.paidYuan > 0 ? o.paidYuan : o.receivableYuan) * 100),
-        operation_date: o.createdAt,
-        source_created_at: o.createdAt,
-      }));
-  }, [profile, orders]);
 
   return (
     <div className="space-y-5">
@@ -252,40 +257,46 @@ export default function StudentDetailPage() {
 
           {tab === "消费记录" ? (
             <section className="overflow-hidden rounded-xl border bg-background">
-              <div className="border-b px-4 py-3 text-sm font-medium">消费记录（收支流水）</div>
+              <div className="border-b px-4 py-3 text-sm font-medium">消费记录（订单记录）</div>
+              <div className="grid grid-cols-3 gap-3 border-b bg-muted/20 px-4 py-3 text-sm">
+                <Kpi label="订单总金额(元)" value={summary.receivableYuan.toFixed(2)} />
+                <Kpi label="实收金额(元)" value={summary.paidYuan.toFixed(2)} />
+                <Kpi label="欠费金额(元)" value={summary.arrearsYuan.toFixed(2)} />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
-                      <Th>日期</Th><Th>类型</Th><Th>方向</Th><Th>金额</Th><Th>订单号</Th><Th>流水号</Th>
+                      <Th>购买项目</Th><Th>应收/应退(元)</Th><Th>实收/实退(元)</Th><Th>业绩归属人</Th><Th>创建时间</Th><Th>最近支付时间</Th><Th>订单状态</Th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paymentRows.map((item, idx) => (
-                      <tr key={`${item.source_id}-${idx}`} className="border-t">
-                        <Td>{formatCnDateTime(item.operation_date)}</Td>
-                        <Td>{item.item_type || "-"}</Td>
-                        <Td>{item.direction || "-"}</Td>
-                        <Td>¥{centsToYuan(item.amount_cents)}</Td>
-                        <Td>{item.source_order_id || "-"}</Td>
-                        <Td>{item.source_id || "-"}</Td>
+                    {(profile.order_logs ?? []).map((item, idx) => (
+                      <tr key={`${item.order_no}-${idx}`} className="border-t">
+                        <Td>{item.item_info || "-"}</Td>
+                        <Td>{centsToYuan(displayReceivable(item.receivable_cents, item.received_cents))}</Td>
+                        <Td>{centsToYuan(item.received_cents)}</Td>
+                        <Td>{item.owner_name || "-"}</Td>
+                        <Td>{formatCnDateTime(item.created_at)}</Td>
+                        <Td>{formatCnDateTime(item.paid_at)}</Td>
+                        <Td>{item.order_state === "PAID" ? "已支付" : item.order_state}</Td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {!paymentRows.length ? <div className="p-4 text-sm text-muted-foreground">暂无消费记录</div> : null}
+              {!(profile.order_logs ?? []).length ? <div className="p-4 text-sm text-muted-foreground">暂无消费记录</div> : null}
             </section>
           ) : null}
 
           {tab === "上课记录" ? (
             <section className="overflow-hidden rounded-xl border bg-background">
-              <div className="border-b px-4 py-3 text-sm font-medium">上课记录（课耗流水）</div>
+              <div className="border-b px-4 py-3 text-sm font-medium">上课记录</div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-muted-foreground">
                     <tr>
-                      <Th>上课时间</Th><Th>课程</Th><Th>班级</Th><Th>老师</Th><Th>消课数</Th>
+                      <Th>上课时间</Th><Th>课程</Th><Th>班级</Th><Th>老师</Th><Th>消课数</Th><Th>关联订单</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -294,8 +305,9 @@ export default function StudentDetailPage() {
                         <Td>{formatCnDateTime(item.checked_at)}</Td>
                         <Td>{item.course_name || "-"}</Td>
                         <Td>{item.class_name || "-"}</Td>
-                        <Td>{item.teacher_names || "-"}</Td>
+                        <Td>{formatTeacherNames(item.teacher_names)}</Td>
                         <Td>{item.consumed_lessons}</Td>
+                        <Td>{item.order_no || "-"}</Td>
                       </tr>
                     ))}
                   </tbody>

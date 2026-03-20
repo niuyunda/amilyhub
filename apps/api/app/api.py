@@ -467,12 +467,13 @@ def get_student_profile(source_student_id: str):
           coalesce(nullif(h.raw_json->>'className', ''), '-') as class_name,
           coalesce(nullif(h.raw_json->>'courseName', ''), '-') as course_name,
           coalesce(nullif(h.raw_json->>'teacherNames', ''), '-') as teacher_names,
+          coalesce(h.raw_json->>'businessNo', '-') as order_no,
           coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric, 0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric, 0) as consumed_lessons,
           h.checked_at
         from amilyhub.hour_cost_flows h
         where h.source_student_id=%s
         order by h.checked_at desc nulls last, h.id desc
-        limit 50
+        limit 100
         """,
         (source_student_id,),
     )
@@ -516,6 +517,27 @@ def get_student_profile(source_student_id: str):
         (source_student_id, source_student_id),
     )
 
+    order_logs = fetch_rows(
+        """
+        select
+          o.source_order_id as order_no,
+          coalesce(pi->>'itemsInfo', '-') as item_info,
+          coalesce(o.receivable_cents, 0) as receivable_cents,
+          coalesce(o.received_cents, 0) as received_cents,
+          coalesce(o.order_state, '-') as order_state,
+          coalesce(o.raw_json->>'businessType', '-') as business_type,
+          coalesce(o.raw_json->>'creatorName', '-') as owner_name,
+          to_timestamp(nullif(o.raw_json->>'created', '')::bigint / 1000.0) as created_at,
+          to_timestamp(nullif(o.raw_json->>'lastPaymentTime', '')::bigint / 1000.0) as paid_at
+        from amilyhub.orders o
+        left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) pi on true
+        where o.source_student_id=%s
+        order by o.source_order_id desc
+        limit 100
+        """,
+        (source_student_id,),
+    )
+
     return {
         "ok": True,
         "data": {
@@ -524,6 +546,7 @@ def get_student_profile(source_student_id: str):
             "consumption": consumption,
             "rollcalls": rollcalls,
             "payments": payments,
+            "order_logs": order_logs,
         },
     }
 
