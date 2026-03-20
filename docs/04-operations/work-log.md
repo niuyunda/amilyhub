@@ -63,3 +63,9 @@
   - Refreshed `docs/README.md`
   - Refreshed `docs/handover/current-status.md`
 - `READ.md` retained as original requirement transcript; `README.md` is now canonical project overview.
+- Refactored docs structure to keep only current status + actionable todo as primary handover.
+- Updated entry linkage across `AGENT_ENTRY.md`, root `README.md`, and `docs/README.md`.
+- Added `docs/handover/todo.md` as single source for next actions.
+- Removed outdated phase docs:
+  - `docs/03-delivery/agent-task-pack-phase1.md`
+  - `docs/runbooks/api-discovery.md`

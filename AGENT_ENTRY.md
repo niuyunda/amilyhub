@@ -1,32 +1,18 @@
 # Agent Entry (Start Here)
 
-This is the routing doc for any new agent session.
-
-## 1) Read in this exact order
+## Read order (strict)
 1. `README.md`
-2. `docs/handover/current-status.md`
-3. `docs/03-delivery/export-milestone-2026-03-20.md`
-4. `docs/03-delivery/db-import-result-2026-03-20.md`
-5. `docs/03-delivery/backend-implementation-status.md`
-6. `docs/04-operations/work-log.md`
+2. `docs/README.md`
+3. `docs/handover/current-status.md`
+4. `docs/handover/todo.md`
 
-## 2) Project snapshot
-- Project: `amilyhub` (monorepo)
-- Objective: replace source SaaS in phases, then evolve to agent-native operations
-- Source SaaS: Xiaomai teaching-management platform (read-only reverse engineering)
-- Current stage: **Data export + DB import completed, backend read API bootstrap completed**
+## Routing
+- 想知道“现在到哪一步了” → `docs/handover/current-status.md`
+- 想知道“下一步做什么” → `docs/handover/todo.md`
+- 想知道“怎么跑数据库” → `docs/runbooks/postgres-docker-setup.md`
+- 想知道“后端做到哪里了” → `docs/03-delivery/backend-implementation-status.md`
 
-## 3) Ground rules
-- Keep all artifacts in this repo.
-- All decisions/operations must be recorded in `/docs`.
-- Update `docs/handover/current-status.md` before ending interrupted work.
-- Secrets go in local `.env` files only (never commit).
-
-## 4) Current technical baseline
-- Local PostgreSQL via Docker Compose (`infra/docker-compose.dev.yml` + `infra/.env`)
-- Imported schema: `apps/api/schema/001_init.sql`
-- Imported data available in schema `amilyhub`
-- API bootstrap in `apps/api/app/api.py`
-
-## 5) Immediate next pointer
-Follow `docs/handover/current-status.md` → **Next Actions**.
+## Rule
+更新任何阶段时，必须同步更新：
+- `docs/handover/current-status.md`
+- `docs/handover/todo.md`

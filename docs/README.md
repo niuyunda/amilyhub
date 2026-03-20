@@ -1,33 +1,23 @@
-# Docs Index
+# Docs (Refactored)
 
-## Structure
-- `00-governance/` project principles, scope, non-goals
-- `01-architecture/` system and data architecture
-- `02-discovery/` source SaaS reverse engineering outputs
-- `03-delivery/` implementation plans, milestones, API/DB/frontend specs
-- `04-operations/` execution logs and decisions
-- `api-catalog/` API collection artifacts
-- `runbooks/` repeatable operation SOPs
-- `handover/` current session handoff state
+只保留当前可执行信息：**最新状态 + 待办 + 当前实现说明**。
 
-## Priority docs (read first)
-1. `handover/current-status.md`
-2. `03-delivery/export-milestone-2026-03-20.md`
-3. `03-delivery/db-import-result-2026-03-20.md`
-4. `03-delivery/backend-implementation-status.md`
-5. `04-operations/work-log.md`
+## 先读（新 agent 入口）
+1. `handover/current-status.md`  ← 当前真实状态
+2. `handover/todo.md`            ← 下一步待办清单
+3. `03-delivery/backend-implementation-status.md` ← 后端当前实现
+4. `runbooks/postgres-docker-setup.md` ← 本地数据库运行方式
 
-## Key deliverables now available
-- API catalog: `02-discovery/api-catalog-master.md`
-- DB schema: `01-architecture/db-schema-v1.md`
-- Backend API design: `03-delivery/backend-api-design-v1.md`
-- Frontend page plan: `03-delivery/frontend-page-plan-v1.md`
-- Import staging plan: `03-delivery/import-staging-plan.md`
-- Field mapping v1: `03-delivery/field-mapping-v1.md`
-- Export summary usage: `runbooks/export-data-usage.md`
-- Docker PG setup: `runbooks/postgres-docker-setup.md`
+## 核心文档
+- 项目约束：`00-governance/project-charter.md`
+- 数据库设计：`01-architecture/db-schema-v1.md`
+- 后端 API 设计：`03-delivery/backend-api-design-v1.md`
+- 前端页面规划：`03-delivery/frontend-page-plan-v1.md`
+- 导入结果：`03-delivery/db-import-result-2026-03-20.md`
+- 操作日志：`04-operations/work-log.md`
 
-## Session continuity protocol
-1. Update `04-operations/work-log.md`
-2. Update `handover/current-status.md`
-3. Ensure any new artifact has a pointer in this index
+## 维护规则
+- 任何阶段变化，先更新：
+  - `handover/current-status.md`
+  - `handover/todo.md`
+- 过时文档直接删除，不保留“旧计划占位文档”。
