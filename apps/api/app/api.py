@@ -905,12 +905,12 @@ def list_classes(
         with base as (
           select
             coalesce(raw_json->>'classId','') as class_id,
-            coalesce(class_name,'') as class_name,
-            coalesce(course_name,'') as course_name,
-            coalesce(teacher_name,'') as teacher_name,
+            coalesce(raw_json->>'className','') as class_name,
+            coalesce(raw_json->>'courseName','') as course_name,
+            coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '') as teacher_name,
             coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
             coalesce((raw_json->>'totalNumber')::int, 0) as total_number
-          from amilyhub.rollcalls
+          from amilyhub.hour_cost_flows
           where coalesce(raw_json->>'classId','') <> ''
         ), agg as (
           select
@@ -919,7 +919,7 @@ def list_classes(
             max(course_name) as course_name,
             max(teacher_name) as teacher_name,
             max(total_number) as student_count,
-            case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
+            case when position('一对一' in max(class_name)) > 0 or position('1v1' in lower(max(class_name))) > 0 or position('1对1' in max(class_name)) > 0 then '一对一' else '班课' end as class_type,
             case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
           from base
           group by class_id
@@ -934,12 +934,12 @@ def list_classes(
         with base as (
           select
             coalesce(raw_json->>'classId','') as class_id,
-            coalesce(class_name,'') as class_name,
-            coalesce(course_name,'') as course_name,
-            coalesce(teacher_name,'') as teacher_name,
+            coalesce(raw_json->>'className','') as class_name,
+            coalesce(raw_json->>'courseName','') as course_name,
+            coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '') as teacher_name,
             coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
             coalesce((raw_json->>'totalNumber')::int, 0) as total_number
-          from amilyhub.rollcalls
+          from amilyhub.hour_cost_flows
           where coalesce(raw_json->>'classId','') <> ''
         ), agg as (
           select
@@ -948,7 +948,7 @@ def list_classes(
             max(course_name) as course_name,
             max(teacher_name) as teacher_name,
             max(total_number) as student_count,
-            case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
+            case when position('一对一' in max(class_name)) > 0 or position('1v1' in lower(max(class_name))) > 0 or position('1对1' in max(class_name)) > 0 then '一对一' else '班课' end as class_type,
             case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
           from base
           group by class_id
@@ -980,13 +980,13 @@ def get_class_profile(class_id: str):
         with base as (
           select
             coalesce(raw_json->>'classId','') as class_id,
-            coalesce(class_name,'-') as class_name,
-            coalesce(course_name,'-') as course_name,
-            coalesce(teacher_name,'-') as teacher_name,
+            coalesce(raw_json->>'className','-') as class_name,
+            coalesce(raw_json->>'courseName','-') as course_name,
+            coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '-') as teacher_name,
             coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
             coalesce((raw_json->>'totalNumber')::int, 0) as total_number,
-            rollcall_time
-          from amilyhub.rollcalls
+            checked_at as rollcall_time
+          from amilyhub.hour_cost_flows
           where coalesce(raw_json->>'classId','')=%s
         )
         select
@@ -994,7 +994,7 @@ def get_class_profile(class_id: str):
           max(class_name) as name,
           max(course_name) as course_name,
           max(teacher_name) as teacher_name,
-          case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
+          case when position('一对一' in max(class_name)) > 0 or position('1v1' in lower(max(class_name))) > 0 or position('1对1' in max(class_name)) > 0 then '一对一' else '班课' end as class_type,
           max(total_number) as student_count,
           max(total_number) as capacity,
           case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status,
@@ -1010,14 +1010,14 @@ def get_class_profile(class_id: str):
     schedules = fetch_rows(
         """
         select
-          source_row_hash as id,
-          class_time_range,
-          rollcall_time,
-          teacher_name,
-          status
-        from amilyhub.rollcalls
+          source_id as id,
+          coalesce(raw_json->>'timeRange', '-') as class_time_range,
+          checked_at as rollcall_time,
+          coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '-') as teacher_name,
+          coalesce(raw_json->>'rollCallStateDesc', '-') as status
+        from amilyhub.hour_cost_flows
         where coalesce(raw_json->>'classId','')=%s
-        order by rollcall_time desc nulls last, id desc
+        order by checked_at desc nulls last, id desc
         limit 50
         """,
         (class_id,),
@@ -1028,11 +1028,11 @@ def get_class_profile(class_id: str):
         with s as (
           select
             coalesce(raw_json->>'studentId','') as student_id,
-            max(student_name) as student_name,
-            max(status) as latest_status,
-            max(rollcall_time) as latest_time,
+            max(coalesce(raw_json->>'studentName', '-')) as student_name,
+            max(coalesce(raw_json->>'rollCallStateDesc', '-')) as latest_status,
+            max(checked_at) as latest_time,
             count(*) as class_count
-          from amilyhub.rollcalls
+          from amilyhub.hour_cost_flows
           where coalesce(raw_json->>'classId','')=%s
             and coalesce(raw_json->>'studentId','') <> ''
           group by coalesce(raw_json->>'studentId','')
@@ -1052,15 +1052,15 @@ def get_class_profile(class_id: str):
     attendance = fetch_rows(
         """
         select
-          source_row_hash as id,
-          student_name,
-          teacher_name,
-          rollcall_time,
-          status,
-          class_time_range
-        from amilyhub.rollcalls
+          source_id as id,
+          coalesce(raw_json->>'studentName', '-') as student_name,
+          coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '-') as teacher_name,
+          checked_at as rollcall_time,
+          coalesce(raw_json->>'rollCallStateDesc', '-') as status,
+          coalesce(raw_json->>'timeRange', '-') as class_time_range
+        from amilyhub.hour_cost_flows
         where coalesce(raw_json->>'classId','')=%s
-        order by rollcall_time desc nulls last, id desc
+        order by checked_at desc nulls last, id desc
         limit 100
         """,
         (class_id,),
