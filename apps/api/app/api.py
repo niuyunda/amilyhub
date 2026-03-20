@@ -373,6 +373,82 @@ def get_student(source_student_id: str):
     return {"ok": True, "data": row}
 
 
+@app.get("/api/v1/students/{source_student_id}/profile", response_model=ObjectResponse)
+def get_student_profile(source_student_id: str):
+    student = fetch_one(
+        """
+        select id, source_student_id, name, phone, gender, birthday, status, source_created_at
+        from amilyhub.students
+        where source_student_id=%s
+        """,
+        (source_student_id,),
+    )
+    if not student:
+        raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+
+    courses = fetch_rows(
+        """
+        select
+          o.source_order_id as order_no,
+          coalesce(pi->>'itemsInfo', '-') as course_name,
+          coalesce(o.order_state, '-') as order_state,
+          coalesce(o.received_cents, 0) as paid_cents,
+          o.source_created_at
+        from amilyhub.orders o
+        left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) pi on true
+        where o.source_student_id=%s
+        order by o.id desc
+        limit 30
+        """,
+        (source_student_id,),
+    )
+
+    consumption = fetch_rows(
+        """
+        select
+          h.source_id,
+          coalesce(nullif(h.raw_json->>'className', ''), '-') as class_name,
+          coalesce(nullif(h.raw_json->>'courseName', ''), '-') as course_name,
+          coalesce(nullif(h.raw_json->>'teacherNames', ''), '-') as teacher_names,
+          coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric, 0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric, 0) as consumed_lessons,
+          h.checked_at
+        from amilyhub.hour_cost_flows h
+        where h.source_student_id=%s
+        order by h.checked_at desc nulls last, h.id desc
+        limit 50
+        """,
+        (source_student_id,),
+    )
+
+    rollcalls = fetch_rows(
+        """
+        select
+          source_row_hash,
+          class_name,
+          course_name,
+          teacher_name,
+          rollcall_time,
+          status
+        from amilyhub.rollcalls
+        where coalesce(raw_json->>'studentId','')=%s
+           or coalesce(raw_json->>'studentName','')=coalesce(%s,'')
+        order by id desc
+        limit 50
+        """,
+        (source_student_id, student.get('name')),
+    )
+
+    return {
+        "ok": True,
+        "data": {
+            "student": student,
+            "courses": courses,
+            "consumption": consumption,
+            "rollcalls": rollcalls,
+        },
+    }
+
+
 @app.post("/api/v1/students", response_model=ObjectResponse, status_code=201)
 def create_student(payload: StudentUpsertRequest):
     with get_conn() as conn:
@@ -436,18 +512,156 @@ def update_student(source_student_id: str, payload: StudentUpdateRequest):
 
 @app.get("/api/v1/teachers", response_model=ListResponse)
 def list_teachers(q: str | None = Query(default=None), page: int = Query(default=1), page_size: int = Query(default=20)):
+    page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
     if q:
         clauses.append("(name ilike %s or phone ilike %s)")
         params.extend([f"%{q}%", f"%{q}%"])
-    return list_query(
-        "teachers",
-        "id, source_teacher_id, name, phone, gender, last_month_lessons, current_month_lessons, total_finished_lessons",
-        clauses,
-        params,
-        page,
-        page_size,
+
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total = fetch_one(
+        f"""
+        with teacher_base as (
+          select
+            source_teacher_id,
+            nullif(name, '') as name,
+            nullif(phone, '') as phone,
+            gender,
+            last_month_lessons,
+            current_month_lessons,
+            total_finished_lessons
+          from amilyhub.teachers
+          union all
+          select
+            coalesce(
+              nullif(raw_json->>'teacherId', ''),
+              nullif(
+                trim(
+                  both ' '
+                  from split_part(
+                    replace(replace(replace(coalesce(raw_json->>'teacherIds', ''), '[', ''), ']', ''), '"', ''),
+                    ',',
+                    1
+                  )
+                ),
+                ''
+              ),
+              md5(coalesce(raw_json->>'teacherNames', 'unknown'))
+            ) as source_teacher_id,
+            nullif(
+              trim(
+                both ' '
+                from split_part(
+                  replace(replace(replace(coalesce(raw_json->>'teacherNames', ''), '[', ''), ']', ''), '"', ''),
+                  ',',
+                  1
+                )
+              ),
+              ''
+            ) as name,
+            null::text as phone,
+            null::text as gender,
+            null::numeric as last_month_lessons,
+            null::numeric as current_month_lessons,
+            null::numeric as total_finished_lessons
+          from amilyhub.hour_cost_flows
+          where coalesce(raw_json->>'teacherNames', '') <> ''
+        ), teacher_agg as (
+          select
+            source_teacher_id,
+            max(name) as name,
+            max(phone) as phone,
+            max(gender) as gender,
+            max(last_month_lessons) as last_month_lessons,
+            max(current_month_lessons) as current_month_lessons,
+            max(total_finished_lessons) as total_finished_lessons
+          from teacher_base
+          group by source_teacher_id
+        )
+        select count(*) as c from teacher_agg
+        {cond}
+        """,
+        tuple(params),
+    )["c"]
+
+    rows = fetch_rows(
+        f"""
+        with teacher_base as (
+          select
+            source_teacher_id,
+            nullif(name, '') as name,
+            nullif(phone, '') as phone,
+            gender,
+            last_month_lessons,
+            current_month_lessons,
+            total_finished_lessons
+          from amilyhub.teachers
+          union all
+          select
+            coalesce(
+              nullif(raw_json->>'teacherId', ''),
+              nullif(
+                trim(
+                  both ' '
+                  from split_part(
+                    replace(replace(replace(coalesce(raw_json->>'teacherIds', ''), '[', ''), ']', ''), '"', ''),
+                    ',',
+                    1
+                  )
+                ),
+                ''
+              ),
+              md5(coalesce(raw_json->>'teacherNames', 'unknown'))
+            ) as source_teacher_id,
+            nullif(
+              trim(
+                both ' '
+                from split_part(
+                  replace(replace(replace(coalesce(raw_json->>'teacherNames', ''), '[', ''), ']', ''), '"', ''),
+                  ',',
+                  1
+                )
+              ),
+              ''
+            ) as name,
+            null::text as phone,
+            null::text as gender,
+            null::numeric as last_month_lessons,
+            null::numeric as current_month_lessons,
+            null::numeric as total_finished_lessons
+          from amilyhub.hour_cost_flows
+          where coalesce(raw_json->>'teacherNames', '') <> ''
+        ), teacher_agg as (
+          select
+            source_teacher_id,
+            max(name) as name,
+            max(phone) as phone,
+            max(gender) as gender,
+            max(last_month_lessons) as last_month_lessons,
+            max(current_month_lessons) as current_month_lessons,
+            max(total_finished_lessons) as total_finished_lessons
+          from teacher_base
+          group by source_teacher_id
+        )
+        select
+          row_number() over(order by source_teacher_id) as id,
+          source_teacher_id,
+          coalesce(name, '-') as name,
+          coalesce(phone, '-') as phone,
+          gender,
+          coalesce(last_month_lessons, 0) as last_month_lessons,
+          coalesce(current_month_lessons, 0) as current_month_lessons,
+          coalesce(total_finished_lessons, 0) as total_finished_lessons
+        from teacher_agg
+        {cond}
+        order by id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
     )
+
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
 
 
 @app.get("/api/v1/orders", response_model=ListResponse)
