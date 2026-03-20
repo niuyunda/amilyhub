@@ -17,13 +17,21 @@ import type {
   TeacherQuery,
 } from "@/src/types/service";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:18765/api/v1";
 
 type ApiList<T> = { ok: boolean; data: T[]; page: { page: number; page_size: number; total: number } };
 type ApiObj<T> = { ok: boolean; data: T };
 
 function toYuan(cents?: number | null): number {
   return Number(((cents ?? 0) / 100).toFixed(2));
+}
+
+function formatDateTime(v?: string | null): string {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 async function getJson<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
@@ -41,8 +49,9 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
 }
 
 function mapStudentStatus(raw?: string): Student["status"] {
-  if (raw === "NORMAL" || raw === "在读" || raw === "active" || raw === "ACTIVE") return "在读";
-  if (raw === "停课") return "停课";
+  if (!raw) return "在读";
+  if (["NORMAL", "LEARNING", "在读", "active", "ACTIVE"].includes(raw)) return "在读";
+  if (["停课", "SUSPENDED", "PAUSED"].includes(raw)) return "停课";
   return "结课";
 }
 
@@ -110,10 +119,10 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
         phone: x.phone ?? "-",
         gender: x.gender === "WOMEN" || x.gender === "女" ? "女" : "男",
         status: mapStudentStatus(x.status),
-        consultant: "-",
-        latestClassAt: x.source_created_at ? String(x.source_created_at) : "-",
-        remainHours: 0,
-        className: "-",
+        consultant: x.consultant ?? "-",
+        latestClassAt: formatDateTime(x.latest_class_at),
+        remainHours: Number(x.remain_hours ?? 0),
+        className: x.class_name ?? "-",
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
@@ -211,6 +220,16 @@ export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageRe
       pageSize: query.pageSize,
       total: filtered.length,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getStudentProfile(studentId: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await getJson<ApiObj<any>>(`/students/${encodeURIComponent(studentId)}/profile`);
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;

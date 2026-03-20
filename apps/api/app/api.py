@@ -221,7 +221,7 @@ def health():
 @app.get("/api/v1/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary():
     students = as_int(fetch_one("select count(*) as c from amilyhub.students")["c"])
-    active_students = as_int(fetch_one("select count(*) as c from amilyhub.students where status in ('active','ACTIVE','在读')")["c"])
+    active_students = as_int(fetch_one("select count(*) as c from amilyhub.students where status in ('active','ACTIVE','在读','NORMAL','LEARNING')")["c"])
     teachers = as_int(fetch_one("select count(*) as c from amilyhub.teachers")["c"])
     orders = as_int(fetch_one("select count(*) as c from amilyhub.orders")["c"])
     hcf = as_int(fetch_one("select count(*) as c from amilyhub.hour_cost_flows")["c"])
@@ -273,21 +273,93 @@ def list_students(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
+    page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
     if q:
-        clauses.append("(name ilike %s or phone ilike %s)")
+        clauses.append("(s.name ilike %s or s.phone ilike %s)")
         params.extend([f"%{q}%", f"%{q}%"])
     if status:
-        clauses.append("status = %s")
-        params.append(status)
-    return list_query(
-        "students",
-        "id, source_student_id, name, phone, gender, birthday, status, source_created_at",
-        clauses,
-        params,
-        page,
-        page_size,
+        if status == "在读":
+            clauses.append("s.status in ('在读','active','ACTIVE','NORMAL','LEARNING')")
+        elif status == "结课":
+            clauses.append("s.status in ('结课','HISTORY','GRADUATED')")
+        elif status == "停课":
+            clauses.append("s.status in ('停课','SUSPENDED','PAUSED')")
+        else:
+            clauses.append("s.status = %s")
+            params.append(status)
+
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total = fetch_one(
+        f"""
+        select count(*) as c
+        from amilyhub.students s
+        {cond}
+        """,
+        tuple(params),
+    )["c"]
+
+    rows = fetch_rows(
+        f"""
+        with latest_hcf as (
+          select distinct on (h.source_student_id)
+            h.source_student_id,
+            h.checked_at,
+            coalesce(nullif(h.raw_json->>'className', ''), '-') as class_name
+          from amilyhub.hour_cost_flows h
+          where h.source_student_id is not null
+          order by h.source_student_id, h.checked_at desc nulls last, h.id desc
+        ), consumed as (
+          select
+            h.source_student_id,
+            coalesce(sum(coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric, 0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric, 0)), 0) as consumed_lessons
+          from amilyhub.hour_cost_flows h
+          where h.source_student_id is not null
+          group by h.source_student_id
+        ), purchased as (
+          select
+            o.source_student_id,
+            coalesce(sum(
+              coalesce(
+                (regexp_match(coalesce(pi->>'itemsInfo', ''), '([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric,
+                0
+              )
+            ), 0) as purchased_lessons
+          from amilyhub.orders o
+          left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) as pi on true
+          where o.source_student_id is not null
+          group by o.source_student_id
+        )
+        select
+          s.id,
+          s.source_student_id,
+          s.name,
+          s.phone,
+          s.gender,
+          s.birthday,
+          s.status,
+          s.source_created_at,
+          coalesce(nullif(s.raw_json->'studentSaleVO'->>'saleName', ''), '-') as consultant,
+          l.checked_at as latest_class_at,
+          coalesce(l.class_name, '-') as class_name,
+          greatest(coalesce(p.purchased_lessons, 0) - coalesce(c.consumed_lessons, 0), 0)::numeric as remain_hours
+        from amilyhub.students s
+        left join latest_hcf l on l.source_student_id = s.source_student_id
+        left join consumed c on c.source_student_id = s.source_student_id
+        left join purchased p on p.source_student_id = s.source_student_id
+        {cond}
+        order by s.id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
     )
+
+    return {
+        "ok": True,
+        "data": rows,
+        "page": {"page": page, "page_size": page_size, "total": total},
+    }
 
 
 @app.get("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
@@ -299,6 +371,82 @@ def get_student(source_student_id: str):
     if not row:
         raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
     return {"ok": True, "data": row}
+
+
+@app.get("/api/v1/students/{source_student_id}/profile", response_model=ObjectResponse)
+def get_student_profile(source_student_id: str):
+    student = fetch_one(
+        """
+        select id, source_student_id, name, phone, gender, birthday, status, source_created_at
+        from amilyhub.students
+        where source_student_id=%s
+        """,
+        (source_student_id,),
+    )
+    if not student:
+        raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+
+    courses = fetch_rows(
+        """
+        select
+          o.source_order_id as order_no,
+          coalesce(pi->>'itemsInfo', '-') as course_name,
+          coalesce(o.order_state, '-') as order_state,
+          coalesce(o.received_cents, 0) as paid_cents,
+          o.source_created_at
+        from amilyhub.orders o
+        left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) pi on true
+        where o.source_student_id=%s
+        order by o.id desc
+        limit 30
+        """,
+        (source_student_id,),
+    )
+
+    consumption = fetch_rows(
+        """
+        select
+          h.source_id,
+          coalesce(nullif(h.raw_json->>'className', ''), '-') as class_name,
+          coalesce(nullif(h.raw_json->>'courseName', ''), '-') as course_name,
+          coalesce(nullif(h.raw_json->>'teacherNames', ''), '-') as teacher_names,
+          coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric, 0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric, 0) as consumed_lessons,
+          h.checked_at
+        from amilyhub.hour_cost_flows h
+        where h.source_student_id=%s
+        order by h.checked_at desc nulls last, h.id desc
+        limit 50
+        """,
+        (source_student_id,),
+    )
+
+    rollcalls = fetch_rows(
+        """
+        select
+          source_row_hash,
+          class_name,
+          course_name,
+          teacher_name,
+          rollcall_time,
+          status
+        from amilyhub.rollcalls
+        where coalesce(raw_json->>'studentId','')=%s
+           or coalesce(raw_json->>'studentName','')=coalesce(%s,'')
+        order by id desc
+        limit 50
+        """,
+        (source_student_id, student.get('name')),
+    )
+
+    return {
+        "ok": True,
+        "data": {
+            "student": student,
+            "courses": courses,
+            "consumption": consumption,
+            "rollcalls": rollcalls,
+        },
+    }
 
 
 @app.post("/api/v1/students", response_model=ObjectResponse, status_code=201)
