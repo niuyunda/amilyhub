@@ -45,7 +45,7 @@ def test_students_pagination_model():
     assert payload['page']['page_size'] == 5
 
 
-def test_student_create_and_update():
+def test_student_put_partial_update_success():
     sid = _uid('stu')
     create = client.post('/api/v1/students', json={
         'source_student_id': sid,
@@ -58,14 +58,12 @@ def test_student_create_and_update():
     assert create.json()['data']['source_student_id'] == sid
 
     update = client.put(f'/api/v1/students/{sid}', json={
-        'source_student_id': sid,
-        'name': 'P0 Student Updated',
-        'phone': '13900139000',
-        'gender': 'F',
-        'status': 'active'
+        'phone': '13900139000'
     })
     assert update.status_code == 200, update.text
-    assert update.json()['data']['name'] == 'P0 Student Updated'
+    payload = update.json()['data']
+    assert payload['name'] == 'P0 Student'
+    assert payload['phone'] == '13900139000'
 
 
 def test_student_not_found_error_model():
@@ -92,7 +90,7 @@ def test_order_create_requires_valid_student():
     assert payload['error']['code'] == 'STUDENT_NOT_FOUND'
 
 
-def test_order_create_and_update_success():
+def test_order_put_partial_update_success():
     sid = _uid('stu')
     client.post('/api/v1/students', json={
         'source_student_id': sid,
@@ -113,16 +111,15 @@ def test_order_create_and_update_success():
     assert create.status_code == 201, create.text
 
     update = client.put(f'/api/v1/orders/{oid}', json={
-        'source_order_id': oid,
-        'source_student_id': sid,
-        'order_type': '课时包',
         'order_state': 'partial',
-        'receivable_cents': 20000,
         'received_cents': 18000,
         'arrears_cents': 2000,
     })
-    assert update.status_code == 200
-    assert update.json()['data']['order_state'] == 'partial'
+    assert update.status_code == 200, update.text
+    payload = update.json()['data']
+    assert payload['order_type'] == '课时包'
+    assert payload['order_state'] == 'partial'
+    assert payload['received_cents'] == 18000
 
 
 def test_hour_cost_flows_filter_and_shape():
