@@ -20,3 +20,9 @@
 - Confirmed operation-log API endpoint: `/business/public/opaudit/list`.
 - Import-entry probes for 学员/班级 did not emit upload preflight API at click-only depth.
 - Saved round-4 raw artifact: `docs/api-catalog/raw/2026-03-20-round4-mutation-upload-probe.json`.
+- Switched exporter to segmented checkpoint mode via `apps/api/scripts/export_segmented.py`.
+- Added checkpoint files under `apps/api/exports/raw/export_20260320_130436/checkpoints/`.
+- Verified resumable runs:
+  - `hour_cost_flows`: progressed to page 52/438, exported_rows=5100 (resumable).
+  - `income_expense`: completed (1512 rows).
+- `rollcalls` dataset still returns intermittent code=500 "网络环境不稳定" at first page; marked for alternate extraction/retry strategy.
