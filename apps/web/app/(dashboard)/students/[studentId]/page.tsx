@@ -27,7 +27,13 @@ type ProfileData = {
     course_name: string;
     order_state: string;
     paid_cents: number;
+    receivable_cents: number;
     source_created_at: string | null;
+    purchased_lessons: number;
+    gift_lessons: number;
+    consumed_lessons: number;
+    transfer_lessons: number;
+    remain_lessons: number;
   }>;
   consumption: Array<{
     source_id: string;
@@ -93,8 +99,18 @@ export default function StudentDetailPage() {
   const summary = useMemo(() => {
     const paidYuan = orders.reduce((sum, o) => sum + o.paidYuan, 0);
     const receivableYuan = orders.reduce((sum, o) => sum + o.receivableYuan, 0);
-    return { paidYuan, receivableYuan, arrearsYuan: Math.max(receivableYuan - paidYuan, 0) };
-  }, [orders]);
+    const remainLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.remain_lessons ?? 0), 0);
+    const consumedLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.consumed_lessons ?? 0), 0);
+    const purchasedLessons = (profile?.courses ?? []).reduce((sum, x) => sum + Number(x.purchased_lessons ?? 0) + Number(x.gift_lessons ?? 0), 0);
+    return {
+      paidYuan,
+      receivableYuan,
+      arrearsYuan: Math.max(receivableYuan - paidYuan, 0),
+      remainLessons,
+      consumedLessons,
+      purchasedLessons,
+    };
+  }, [orders, profile]);
 
   return (
     <div className="space-y-4">
@@ -147,7 +163,10 @@ export default function StudentDetailPage() {
 
           {tab === "报读课程" ? (
             <div className="space-y-4">
-              <section className="grid gap-3 md:grid-cols-3">
+              <section className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+                <MetricCard label="剩余课时" value={`${summary.remainLessons}`} />
+                <MetricCard label="已消耗课时" value={`${summary.consumedLessons}`} />
+                <MetricCard label="合计购买课时" value={`${summary.purchasedLessons}`} />
                 <MetricCard label="应收总额（元）" value={summary.receivableYuan.toFixed(2)} />
                 <MetricCard label="实收总额（元）" value={summary.paidYuan.toFixed(2)} />
                 <MetricCard label="欠费总额（元）" value={summary.arrearsYuan.toFixed(2)} />
@@ -157,25 +176,33 @@ export default function StudentDetailPage() {
                 <CardHeader>
                   <CardTitle>报读课程（订单明细）</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  {profile.courses.map((item, idx) => (
+                <CardContent className="space-y-3 text-sm">
+                  {(profile.courses ?? []).map((item, idx) => (
                     <div key={`${item.order_no}-${idx}`} className="rounded-lg border p-3">
-                      <div className="mb-1 flex items-center gap-2">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{item.order_state || "-"}</Badge>
                         <span className="text-muted-foreground">订单号：{item.order_no || "-"}</span>
+                        <span className="text-muted-foreground">创建时间：{item.source_created_at || "-"}</span>
                       </div>
-                      <p>课程：{item.course_name || "-"}</p>
-                      <p>已收金额：¥{centsToYuan(item.paid_cents)}</p>
-                      <p className="text-muted-foreground">创建时间：{item.source_created_at || "-"}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <p className="mb-2">课程：{item.course_name || "-"}</p>
+                      <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+                        <DetailRow label="购买数量" value={`${item.purchased_lessons ?? 0}课时`} />
+                        <DetailRow label="赠送数量" value={`${item.gift_lessons ?? 0}课时`} />
+                        <DetailRow label="已消耗数量" value={`${item.consumed_lessons ?? 0}课时`} />
+                        <DetailRow label="退转数量" value={`${item.transfer_lessons ?? 0}课时`} />
+                        <DetailRow label="剩余数量" value={`${item.remain_lessons ?? 0}课时`} />
+                        <DetailRow label="金额" value={`实收¥${centsToYuan(item.paid_cents)} / 应收¥${centsToYuan(item.receivable_cents)}`} />
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <Button size="sm" variant="outline">续费</Button>
                         <Button size="sm" variant="outline">转课</Button>
                         <Button size="sm" variant="outline">退课</Button>
                         <Button size="sm" variant="outline">结课</Button>
+                        <Button size="sm" variant="outline">设置有效期</Button>
                       </div>
                     </div>
                   ))}
-                  {profile.courses.length === 0 ? <p className="text-sm text-muted-foreground">暂无报读课程</p> : null}
+                  {!(profile.courses ?? []).length ? <p className="text-sm text-muted-foreground">暂无报读课程</p> : null}
                 </CardContent>
               </Card>
             </div>
@@ -187,7 +214,7 @@ export default function StudentDetailPage() {
                 <CardTitle>消费记录（收支流水）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                {profile.payments.map((item, idx) => (
+                {(profile.payments ?? []).map((item, idx) => (
                   <div key={`${item.source_id}-${idx}`} className="rounded-lg border p-3">
                     <p>
                       {item.operation_date || "-"} · {item.item_type || "-"} · {item.direction || "-"} · ¥{centsToYuan(item.amount_cents)}
@@ -195,7 +222,7 @@ export default function StudentDetailPage() {
                     <p className="text-muted-foreground">流水号：{item.source_id || "-"} ｜ 订单号：{item.source_order_id || "-"}</p>
                   </div>
                 ))}
-                {profile.payments.length === 0 ? <p className="text-muted-foreground">暂无消费记录</p> : null}
+                {!(profile.payments ?? []).length ? <p className="text-muted-foreground">暂无消费记录</p> : null}
               </CardContent>
             </Card>
           ) : null}

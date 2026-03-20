@@ -396,19 +396,47 @@ def get_student_profile(source_student_id: str):
 
     courses = fetch_rows(
         """
+        with h as (
+          select
+            coalesce(raw_json->>'businessNo', '') as business_no,
+            coalesce(sum(coalesce((raw_json->>'checkedPurchaseLessons')::numeric, 0)), 0) as consumed_purchase,
+            coalesce(sum(coalesce((raw_json->>'checkedGiftLessons')::numeric, 0)), 0) as consumed_gift,
+            coalesce(
+              (
+                array_agg(coalesce((raw_json->>'remainPurchaseLessons')::numeric, 0) order by checked_at desc nulls last, id desc)
+              )[1],
+              0
+            ) as remain_purchase,
+            coalesce(
+              (
+                array_agg(coalesce((raw_json->>'remainGiftLessons')::numeric, 0) order by checked_at desc nulls last, id desc)
+              )[1],
+              0
+            ) as remain_gift
+          from amilyhub.hour_cost_flows
+          where source_student_id=%s and coalesce(raw_json->>'businessNo', '') <> ''
+          group by coalesce(raw_json->>'businessNo', '')
+        )
         select
           o.source_order_id as order_no,
           coalesce(pi->>'itemsInfo', '-') as course_name,
           coalesce(o.order_state, '-') as order_state,
           coalesce(o.received_cents, 0) as paid_cents,
-          o.source_created_at
+          coalesce(o.receivable_cents, 0) as receivable_cents,
+          o.source_created_at,
+          (coalesce(h.consumed_purchase, 0) + coalesce(h.remain_purchase, 0))::numeric as purchased_lessons,
+          (coalesce(h.consumed_gift, 0) + coalesce(h.remain_gift, 0))::numeric as gift_lessons,
+          (coalesce(h.consumed_purchase, 0) + coalesce(h.consumed_gift, 0))::numeric as consumed_lessons,
+          0::numeric as transfer_lessons,
+          (coalesce(h.remain_purchase, 0) + coalesce(h.remain_gift, 0))::numeric as remain_lessons
         from amilyhub.orders o
         left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) pi on true
+        left join h on h.business_no = o.source_order_id
         where o.source_student_id=%s
         order by o.id desc
-        limit 30
+        limit 50
         """,
-        (source_student_id,),
+        (source_student_id, source_student_id),
     )
 
     consumption = fetch_rows(
