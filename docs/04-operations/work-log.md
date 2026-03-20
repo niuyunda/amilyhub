@@ -57,3 +57,9 @@
 - Added backend implementation status doc: `docs/03-delivery/backend-implementation-status.md`.
 - Expanded FastAPI implementation with additional read APIs: teachers, income-expense, rollcalls, dashboard summary, student detail.
 - Verified all newly added endpoints return 200 via TestClient against imported PostgreSQL dataset.
+- Per user request, refreshed documentation set and entry routing docs:
+  - Updated `AGENT_ENTRY.md`
+  - Added/updated root `README.md`
+  - Refreshed `docs/README.md`
+  - Refreshed `docs/handover/current-status.md`
+- `READ.md` retained as original requirement transcript; `README.md` is now canonical project overview.

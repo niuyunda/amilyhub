@@ -1,25 +1,32 @@
 # Agent Entry (Start Here)
 
-This file is the handover router for all new agent sessions.
+This is the routing doc for any new agent session.
 
-## 1) Read first (in order)
-1. `docs/00-governance/project-charter.md`
-2. `docs/04-operations/work-log.md`
-3. `docs/handover/current-status.md`
-4. `docs/02-discovery/api-catalog-master.md`
+## 1) Read in this exact order
+1. `README.md`
+2. `docs/handover/current-status.md`
+3. `docs/03-delivery/export-milestone-2026-03-20.md`
+4. `docs/03-delivery/db-import-result-2026-03-20.md`
+5. `docs/03-delivery/backend-implementation-status.md`
+6. `docs/04-operations/work-log.md`
 
-## 2) What this project is
-- Project: `amilyhub` (Monorepo)
-- Goal: Rebuild current teaching-management SaaS with no change to source SaaS, then evolve to agent-native operations.
-- Source SaaS: Xiaomai teaching system (read-only reverse engineering)
+## 2) Project snapshot
+- Project: `amilyhub` (monorepo)
+- Objective: replace source SaaS in phases, then evolve to agent-native operations
+- Source SaaS: Xiaomai teaching-management platform (read-only reverse engineering)
+- Current stage: **Data export + DB import completed, backend read API bootstrap completed**
 
 ## 3) Ground rules
-- Keep all project artifacts in this repository.
-- Record every operation and decision in `/docs`.
-- If interrupted, update `docs/handover/current-status.md` before stopping.
+- Keep all artifacts in this repo.
+- All decisions/operations must be recorded in `/docs`.
+- Update `docs/handover/current-status.md` before ending interrupted work.
+- Secrets go in local `.env` files only (never commit).
 
-## 4) Current phase
-- Phase 1: API discovery and data-export planning.
+## 4) Current technical baseline
+- Local PostgreSQL via Docker Compose (`infra/docker-compose.dev.yml` + `infra/.env`)
+- Imported schema: `apps/api/schema/001_init.sql`
+- Imported data available in schema `amilyhub`
+- API bootstrap in `apps/api/app/api.py`
 
-## 5) Next action pointer
-- Continue from: `docs/handover/current-status.md` → section **Next Actions**.
+## 5) Immediate next pointer
+Follow `docs/handover/current-status.md` → **Next Actions**.
