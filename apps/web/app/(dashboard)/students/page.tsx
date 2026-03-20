@@ -1,14 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
 import { DataTable, type ColumnDef } from "@/components/common/data-table";
 import { DetailSheet } from "@/components/common/detail-sheet";
-import { FilterBar } from "@/components/common/filter-bar";
-import { PageHeader } from "@/components/common/page-header";
 import { Pager } from "@/components/common/pager";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
@@ -263,39 +261,45 @@ export default function StudentsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="学员管理"
-        description="对齐小麦助教核心流程：查询筛选、详情查看、新增编辑、停课与导出。"
-        actions={
-          <>
+      <Card>
+        <CardContent className="space-y-4 p-4">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">学员管理</h2>
+            <p className="text-sm text-muted-foreground">对齐小麦助教核心流程：查询筛选、详情查看、新增编辑、停课与导出。</p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
             <Button onClick={openCreate}>新增学员</Button>
             <Button variant="outline" onClick={openEdit}>编辑学员</Button>
             <Button variant="outline" onClick={exportCsv}>导出</Button>
-          </>
-        }
-      />
+          </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap gap-2 p-4 text-sm">
-          <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1); }}>全部学员（{statusStats.all}）</Button>
-          <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1); }}>在读学员（{statusStats.active}）</Button>
-          <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1); }}>停课学员（{statusStats.suspended}）</Button>
-          <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1); }}>结课学员（{statusStats.ended}）</Button>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1); }}>全部学员（{statusStats.all}）</Button>
+            <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1); }}>在读学员（{statusStats.active}）</Button>
+            <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1); }}>停课学员（{statusStats.suspended}）</Button>
+            <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1); }}>结课学员（{statusStats.ended}）</Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">搜索学员</p>
+            <div className="flex flex-wrap gap-2">
+              <Input className="max-w-md" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="请输入学员姓名/手机号" />
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setKeyword("");
+                  setStatusFilter("all");
+                  void load(1);
+                }}
+              >
+                重置
+              </Button>
+              <Button onClick={() => void load(1)}>查询</Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
-
-      <FilterBar
-        onReset={() => {
-          setKeyword("");
-          setStatusFilter("all");
-          void load(1);
-        }}
-        onQuery={() => void load(1)}
-      >
-        <FilterField label="搜索学员">
-          <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="请输入学员姓名/手机号" />
-        </FilterField>
-      </FilterBar>
 
       {status === "loading" ? <LoadingState text="学员列表加载中..." /> : null}
       {status === "error" ? <ErrorState message={error || "请求失败，请稍后重试"} onRetry={() => void load(page)} /> : null}
@@ -461,15 +465,6 @@ function StudentFormDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      {children}
-    </div>
   );
 }
 
