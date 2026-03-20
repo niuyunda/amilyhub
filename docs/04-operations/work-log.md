@@ -40,3 +40,10 @@
 - Added import docs for next agents:
   - `docs/03-delivery/import-staging-plan.md`
   - `docs/03-delivery/field-mapping-v1.md`
+- Added PostgreSQL schema design SQL: `apps/api/schema/001_init.sql`.
+- Added raw-to-PostgreSQL import script: `apps/api/scripts/load_raw_to_postgres.py` (idempotent upsert style).
+- Added architecture/API/frontend planning docs:
+  - `docs/01-architecture/db-schema-v1.md`
+  - `docs/03-delivery/backend-api-design-v1.md`
+  - `docs/03-delivery/frontend-page-plan-v1.md`
+- Connection check performed from WSL: port `55432` is reachable but current known credential set did not authenticate; import script is ready and requires valid `DATABASE_URL` runtime.
