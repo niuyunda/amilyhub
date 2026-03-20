@@ -31,6 +31,28 @@ def to_date(v):
         return None
     return None
 
+
+def to_dt(v):
+    if v in (None, ''):
+        return None
+    try:
+        if isinstance(v, (int, float)):
+            ts = float(v)
+            if ts > 1e12:
+                ts = ts / 1000.0
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        s = str(v).strip()
+        if not s:
+            return None
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except:
+        return None
+
 def pick(d, *keys):
     for k in keys:
         if k in d and d[k] not in (None, ''):
@@ -75,7 +97,7 @@ def run():
                          status=excluded.status,
                          source_created_at=excluded.source_created_at,
                          raw_json=excluded.raw_json''',
-                    (sid, pick(sb,'name', 'studentName') or pick(r,'name'), pick(sb,'phone','mobile') or pick(r,'phone'), pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
+                    (sid, pick(sb,'name', 'studentName') or pick(r,'name'), pick(sb,'phone','mobile') or pick(r,'phone'), pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'statusEnum','status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','students',%s,'ok')", (n,))
 
@@ -122,8 +144,8 @@ def run():
     for r in load_jsonl(ROOT/'hour_cost_flows.jsonl'):
         rid = str(pick(r,'id'))
         if not rid: continue
-        cur.execute('''insert into amilyhub.hour_cost_flows(source_id,source_student_id,source_teacher_id,source_class_id,source_course_id,cost_type,source_type,cost_hours,cost_amount_cents,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        cur.execute('''insert into amilyhub.hour_cost_flows(source_id,source_student_id,source_teacher_id,source_class_id,source_course_id,cost_type,source_type,cost_hours,cost_amount_cents,checked_at,source_created_at,raw_json)
+                       values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        on conflict (source_id) do update set
                          source_student_id=excluded.source_student_id,
                          source_teacher_id=excluded.source_teacher_id,
@@ -133,8 +155,10 @@ def run():
                          source_type=excluded.source_type,
                          cost_hours=excluded.cost_hours,
                          cost_amount_cents=excluded.cost_amount_cents,
+                         checked_at=excluded.checked_at,
+                         source_created_at=excluded.source_created_at,
                          raw_json=excluded.raw_json''',
-                    (rid, pick(r,'studentId'), pick(r,'teacherId'), pick(r,'classId'), pick(r,'courseId'), pick(r,'costType'), pick(r,'sourceType'), pick(r,'costHour'), cents(pick(r,'costAmount','amount')), json.dumps(r,ensure_ascii=False)))
+                    (rid, pick(r,'studentId'), pick(r,'teacherId'), pick(r,'classId'), pick(r,'courseId'), pick(r,'costType'), pick(r,'sourceType'), pick(r,'costHour'), cents(pick(r,'costAmount','amount')), to_dt(pick(r,'checkedDate','checkedAt')), to_dt(pick(r,'created','createdAt')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','hour_cost_flows',%s,'ok')", (n,))
 

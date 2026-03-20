@@ -17,7 +17,7 @@ import type {
   TeacherQuery,
 } from "@/src/types/service";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:18765/api/v1";
 
 type ApiList<T> = { ok: boolean; data: T[]; page: { page: number; page_size: number; total: number } };
 type ApiObj<T> = { ok: boolean; data: T };
@@ -41,8 +41,10 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
 }
 
 function mapStudentStatus(raw?: string): Student["status"] {
-  if (raw === "NORMAL" || raw === "在读" || raw === "active" || raw === "ACTIVE") return "在读";
-  if (raw === "停课") return "停课";
+  if (!raw) return "在读";
+  if (["NORMAL", "LEARNING", "在读", "active", "ACTIVE"].includes(raw)) return "在读";
+  if (["停课", "SUSPENDED", "PAUSED"].includes(raw)) return "停课";
+  if (["HISTORY", "GRADUATED", "结课"].includes(raw)) return "结课";
   return "结课";
 }
 
@@ -110,10 +112,10 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
         phone: x.phone ?? "-",
         gender: x.gender === "WOMEN" || x.gender === "女" ? "女" : "男",
         status: mapStudentStatus(x.status),
-        consultant: "-",
-        latestClassAt: x.source_created_at ? String(x.source_created_at) : "-",
-        remainHours: 0,
-        className: "-",
+        consultant: x.consultant ?? "-",
+        latestClassAt: x.latest_class_at ? String(x.latest_class_at) : "-",
+        remainHours: Number(x.remain_hours ?? 0),
+        className: x.class_name ?? "-",
       })),
       page: r.page.page,
       pageSize: r.page.page_size,

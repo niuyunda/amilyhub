@@ -15,6 +15,8 @@ HEADERS = {
     'vn':'5.7.0','project':'xmzj-web-b','xmVersion':'5.0','v':'v5.4.8','instId':'1288069250509230081'
 }
 
+STUDENT_QUERY_STATUS = int(__import__('os').getenv('STUDENT_QUERY_STATUS', '0'))
+
 DATASETS = [
     {
         'name':'teachers',
@@ -25,7 +27,7 @@ DATASETS = [
         'name':'students_learning',
         'path':'/business/public/student/getLearningStudentPageCheckPermission',
         'body': lambda p,s: {
-            'queryText':'','current':p,'size':s,'status':3,
+            'queryText':'','current':p,'size':s,'status':STUDENT_QUERY_STATUS,
             'filterRequest':{},'basicRequest':{},'expandRequest':{},'timeRangeRequest':{},'tagAndAttrRequest':{},
             'filterByAccountAndTeacher':False
         }
