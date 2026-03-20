@@ -570,6 +570,20 @@ def create_student(payload: StudentUpsertRequest):
                 if not source_student_id:
                     raise ApiError(500, "STUDENT_ID_GENERATE_FAILED", "failed to generate student id")
 
+            if payload.name and payload.phone:
+                cur.execute(
+                    """
+                    select source_student_id from amilyhub.students
+                    where lower(coalesce(name, '')) = lower(%s)
+                      and coalesce(phone, '') = %s
+                    limit 1
+                    """,
+                    (payload.name, payload.phone),
+                )
+                hit = cur.fetchone()
+                if hit:
+                    raise ApiError(409, "STUDENT_EXISTS", f"student already exists: {hit[0]}")
+
             cur.execute(
                 """
                 insert into amilyhub.students
