@@ -48,6 +48,20 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
   return res.json() as Promise<T>;
 }
 
+async function sendJson<T>(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 403) throw new Error("FORBIDDEN");
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP_${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 function mapStudentStatus(raw?: string): Student["status"] {
   if (!raw) return "在读";
   if (["NORMAL", "LEARNING", "在读", "active", "ACTIVE"].includes(raw)) return "在读";
@@ -123,6 +137,10 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
         latestClassAt: formatDateTime(x.latest_class_at),
         remainHours: Number(x.remain_hours ?? 0),
         className: x.class_name ?? "-",
+        age: Number.isFinite(Number(x.age)) ? Number(x.age) : null,
+        birthday: x.birthday ? String(x.birthday) : "-",
+        creator: x.creator ?? "-",
+        createdAt: formatDateTime(x.source_created_at),
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
@@ -229,6 +247,54 @@ export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageRe
 export async function getStudentProfile(studentId: string): Promise<ServiceResult<any>> {
   try {
     const r = await getJson<ApiObj<any>>(`/students/${encodeURIComponent(studentId)}/profile`);
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createStudent(input: {
+  sourceStudentId: string;
+  name: string;
+  phone?: string;
+  gender?: "男" | "女";
+  birthday?: string;
+  status?: "在读" | "停课" | "结课";
+}): Promise<ServiceResult<any>> {
+  try {
+    const payload = {
+      source_student_id: input.sourceStudentId,
+      name: input.name,
+      phone: input.phone,
+      gender: input.gender,
+      birthday: input.birthday,
+      status: input.status,
+    };
+    const r = await sendJson<ApiObj<any>>("POST", "/students", payload);
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function updateStudent(studentId: string, input: {
+  name?: string;
+  phone?: string;
+  gender?: "男" | "女";
+  birthday?: string;
+  status?: "在读" | "停课" | "结课";
+}): Promise<ServiceResult<any>> {
+  try {
+    const payload = {
+      name: input.name,
+      phone: input.phone,
+      gender: input.gender,
+      birthday: input.birthday,
+      status: input.status,
+    };
+    const r = await sendJson<ApiObj<any>>("PUT", `/students/${encodeURIComponent(studentId)}`, payload);
     return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };

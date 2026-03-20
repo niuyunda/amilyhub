@@ -338,9 +338,11 @@ def list_students(
           s.phone,
           s.gender,
           s.birthday,
+          case when s.birthday is not null then extract(year from age(current_date, s.birthday))::int else null end as age,
           s.status,
           s.source_created_at,
           coalesce(nullif(s.raw_json->'studentSaleVO'->>'saleName', ''), '-') as consultant,
+          coalesce(nullif(s.raw_json->>'createUserName', ''), '-') as creator,
           l.checked_at as latest_class_at,
           coalesce(l.class_name, '-') as class_name,
           greatest(coalesce(p.purchased_lessons, 0) - coalesce(c.consumed_lessons, 0), 0)::numeric as remain_hours

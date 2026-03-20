@@ -35,6 +35,10 @@ export interface Student {
   latestClassAt: string;
   remainHours: number;
   className: string;
+  age: number | null;
+  birthday: string;
+  creator: string;
+  createdAt: string;
 }
 
 export interface Teacher {
