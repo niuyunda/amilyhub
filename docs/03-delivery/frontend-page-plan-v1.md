@@ -101,3 +101,28 @@
 ### 说明
 - 本阶段目标是“功能等价、可用优先”，未做像素级还原。
 - Dashboard 趋势图暂用表格分组展示替代（符合 P0 要求）。
+
+### 本地运行方式
+```bash
+# API（示例）
+cd apps/api
+export DATABASE_URL='postgresql://amily:alpha128128@localhost:55432/amilyhub'
+uv run python main.py
+
+# Web
+cd apps/web
+npm install
+npm run dev
+# 或构建
+npm run build
+```
+
+### 简单自测清单
+- [ ] Dashboard 可加载 KPI 卡片，且出现订单状态分布与 integrity 表格
+- [ ] Students 支持 q/status 过滤；点击行可打开详情侧栏
+- [ ] Orders 支持 state/student_id 过滤；点击行可打开详情侧栏
+- [ ] Hour Cost Flows 支持 student_id/teacher_id 过滤
+- [ ] Rollcalls 支持 q 搜索
+- [ ] Income/Expense 支持 direction 过滤
+- [ ] 各页面加载时显示 Loading，接口异常时显示统一错误信息
+- [ ] 分页 Prev/Next 行为正确，Total 与页码显示正确
