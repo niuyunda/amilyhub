@@ -43,7 +43,7 @@ type ProfileData = {
     consumed_lessons: number;
     checked_at: string | null;
   }>;
-  payments: Array<{
+  payments?: Array<{
     source_id: string;
     source_order_id: string;
     item_type: string;
@@ -111,6 +111,22 @@ export default function StudentDetailPage() {
       purchasedLessons,
     };
   }, [orders, profile]);
+
+  const paymentRows = useMemo(() => {
+    const raw = profile?.payments ?? [];
+    if (raw.length) return raw;
+    return orders
+      .filter((o) => o.paidYuan > 0 || o.receivableYuan > 0)
+      .map((o) => ({
+        source_id: `ORDER-${o.orderNo}`,
+        source_order_id: o.orderNo,
+        item_type: "订单收款",
+        direction: "收入",
+        amount_cents: Math.round((o.paidYuan > 0 ? o.paidYuan : o.receivableYuan) * 100),
+        operation_date: o.createdAt,
+        source_created_at: o.createdAt,
+      }));
+  }, [profile, orders]);
 
   return (
     <div className="space-y-4">
@@ -214,7 +230,7 @@ export default function StudentDetailPage() {
                 <CardTitle>消费记录（收支流水）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                {(profile.payments ?? []).map((item, idx) => (
+                {paymentRows.map((item, idx) => (
                   <div key={`${item.source_id}-${idx}`} className="rounded-lg border p-3">
                     <p>
                       {item.operation_date || "-"} · {item.item_type || "-"} · {item.direction || "-"} · ¥{centsToYuan(item.amount_cents)}
@@ -222,7 +238,7 @@ export default function StudentDetailPage() {
                     <p className="text-muted-foreground">流水号：{item.source_id || "-"} ｜ 订单号：{item.source_order_id || "-"}</p>
                   </div>
                 ))}
-                {!(profile.payments ?? []).length ? <p className="text-muted-foreground">暂无消费记录</p> : null}
+                {!paymentRows.length ? <p className="text-muted-foreground">暂无消费记录</p> : null}
               </CardContent>
             </Card>
           ) : null}
