@@ -16,3 +16,23 @@
 更新任何阶段时，必须同步更新：
 - `docs/handover/current-status.md`
 - `docs/handover/todo.md`
+- `docs/04-operations/work-log.md`
+
+---
+
+## New Session Hand-off Prompt (copy not required)
+If this is a brand-new session with no prior chat context, follow this exactly:
+
+1. Read the 4 files in **Read order (strict)**.
+2. Do **not** redo completed work.
+3. Execute from `docs/handover/todo.md` P0 top-down.
+4. Before ending your turn, update:
+   - `docs/handover/current-status.md`
+   - `docs/handover/todo.md`
+   - `docs/04-operations/work-log.md`
+
+## What to reply first in a new session
+After reading docs, first reply with:
+1. One-paragraph summary of current project status.
+2. Next 3 concrete actions you will perform now.
+3. Any blocker (only if real blocker exists).
