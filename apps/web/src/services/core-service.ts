@@ -212,6 +212,7 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
 export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageResult<Order>>> {
   try {
     const r = await getJson<ApiList<any>>("/orders", {
+      student_id: query.studentId,
       state: query.status,
       page: query.page,
       page_size: query.pageSize,

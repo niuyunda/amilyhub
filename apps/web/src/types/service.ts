@@ -30,6 +30,7 @@ export interface ClassQuery extends ListQuery {
 export interface OrderQuery extends ListQuery {
   status?: "待支付" | "已支付" | "已作废";
   orderType?: "报名" | "续费" | "退费";
+  studentId?: string;
 }
 
 export interface FinanceQuery extends ListQuery {

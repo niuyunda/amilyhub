@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -105,7 +106,15 @@ export default function StudentsPage() {
 
   const columns: Array<ColumnDef<Student>> = useMemo(
     () => [
-      { key: "name", title: "学员姓名" },
+      {
+        key: "name",
+        title: "学员姓名",
+        render: (row) => (
+          <Link className="text-primary underline-offset-2 hover:underline" href={`/students/${encodeURIComponent(row.id)}`} onClick={(e) => e.stopPropagation()}>
+            {row.name}
+          </Link>
+        ),
+      },
       { key: "phone", title: "手机号" },
       { key: "className", title: "所在班级" },
       { key: "age", title: "年龄", render: (row) => row.age ?? "-" },
