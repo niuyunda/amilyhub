@@ -622,7 +622,21 @@ def list_rollcalls(
         params.append(status)
     return list_query(
         "rollcalls",
-        "id, source_row_hash, student_name, class_name, course_name, teacher_name, rollcall_time, class_time_range, status, cost_amount_cents",
+        """
+        id,
+        source_row_hash,
+        student_name,
+        class_name,
+        course_name,
+        teacher_name,
+        rollcall_time,
+        class_time_range,
+        status,
+        cost_amount_cents,
+        raw_json->>'rollCallTeacherId' as roll_call_teacher_id,
+        raw_json->>'classId' as class_id,
+        raw_json->>'courseId' as course_id
+        """,
         clauses,
         params,
         page,
