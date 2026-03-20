@@ -2,7 +2,7 @@
 
 ## 2026-03-20
 - Established documentation operating model for full agent-driven continuity.
-- Added root router document `AGENT_ENTRY.md`.
+- Added root router document `entry.md`.
 - Created docs taxonomy for governance, architecture, discovery, delivery, operations, handover.
 - Started API catalog process against live source SaaS via browser navigation.
 - Completed initial menu-level API scan for required modules:
@@ -58,13 +58,13 @@
 - Expanded FastAPI implementation with additional read APIs: teachers, income-expense, rollcalls, dashboard summary, student detail.
 - Verified all newly added endpoints return 200 via TestClient against imported PostgreSQL dataset.
 - Per user request, refreshed documentation set and entry routing docs:
-  - Updated `AGENT_ENTRY.md`
+  - Updated `entry.md`
   - Added/updated root `README.md`
   - Refreshed `docs/README.md`
   - Refreshed `docs/handover/current-status.md`
 - `READ.md` retained as original requirement transcript; `README.md` is now canonical project overview.
 - Refactored docs structure to keep only current status + actionable todo as primary handover.
-- Updated entry linkage across `AGENT_ENTRY.md`, root `README.md`, and `docs/README.md`.
+- Updated entry linkage across `entry.md`, root `README.md`, and `docs/README.md`.
 - Added `docs/handover/todo.md` as single source for next actions.
 - Removed outdated phase docs:
   - `docs/03-delivery/agent-task-pack-phase1.md`

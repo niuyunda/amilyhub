@@ -4,7 +4,7 @@
 Enable any new agent session to immediately locate, validate, and consume the exported source SaaS data.
 
 ## 1) Start Here
-- Read: `AGENT_ENTRY.md`
+- Read: `entry.md`
 - Then read:
   1. `docs/03-delivery/export-milestone-2026-03-20.md`
   2. `apps/api/exports/raw/export_20260320_130436/export_summary.json`

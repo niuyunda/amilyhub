@@ -1,10 +1,10 @@
 # AmilyHub Monorepo
 
 当前项目状态与待办统一入口：
-- `AGENT_ENTRY.md`
+- `entry.md`
 
 ## Quick Start for Agents
-1. 读 `AGENT_ENTRY.md`
+1. 读 `entry.md`
 2. 读 `docs/handover/current-status.md`
 3. 读 `docs/handover/todo.md`
 
@@ -23,4 +23,4 @@ uv run python main.py
 
 ## Notes
 - `READ.md` 是原始需求记录
-- `README.md + AGENT_ENTRY.md + docs/handover/*` 是当前执行入口
+- `README.md + entry.md + docs/handover/*` 是当前执行入口
