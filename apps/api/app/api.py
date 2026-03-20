@@ -7,7 +7,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .db import fetch_one, fetch_rows, get_conn
 
@@ -69,6 +69,27 @@ class StudentUpsertRequest(BaseModel):
 
 class OrderUpsertRequest(BaseModel):
     source_order_id: str = Field(min_length=1)
+    source_student_id: str | None = None
+    order_type: str | None = None
+    order_state: str | None = None
+    receivable_cents: int | None = None
+    received_cents: int | None = None
+    arrears_cents: int | None = None
+
+
+class StudentUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+    birthday: date | None = None
+    status: str | None = None
+
+
+class OrderUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_student_id: str | None = None
     order_type: str | None = None
     order_state: str | None = None
@@ -311,25 +332,27 @@ def create_student(payload: StudentUpsertRequest):
 
 
 @app.put("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
-def update_student(source_student_id: str, payload: StudentUpsertRequest):
+def update_student(source_student_id: str, payload: StudentUpdateRequest):
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one updatable field is required")
+
+    set_parts = [f"{field}=%s" for field in updates]
+    values = list(updates.values())
+    set_parts.append("raw_json=%s::jsonb")
+    values.append(json.dumps(updates, ensure_ascii=False, default=str))
+    values.append(source_student_id)
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 update amilyhub.students
-                set name=%s, phone=%s, gender=%s, birthday=%s, status=%s, raw_json=%s::jsonb
+                set {', '.join(set_parts)}
                 where source_student_id=%s
                 returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
                 """,
-                (
-                    payload.name,
-                    payload.phone,
-                    payload.gender,
-                    payload.birthday,
-                    payload.status,
-                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
-                    source_student_id,
-                ),
+                tuple(values),
             )
             row = cur.fetchone()
             if not row:
@@ -429,35 +452,30 @@ def create_order(payload: OrderUpsertRequest):
 
 
 @app.put("/api/v1/orders/{source_order_id}", response_model=ObjectResponse)
-def update_order(source_order_id: str, payload: OrderUpsertRequest):
-    if payload.source_student_id:
-        assert_student_exists(payload.source_student_id)
+def update_order(source_order_id: str, payload: OrderUpdateRequest):
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one updatable field is required")
+    if updates.get("source_student_id"):
+        assert_student_exists(updates["source_student_id"])
+
+    set_parts = [f"{field}=%s" for field in updates]
+    values = list(updates.values())
+    set_parts.append("raw_json=%s::jsonb")
+    values.append(json.dumps(updates, ensure_ascii=False, default=str))
+    values.append(source_order_id)
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 update amilyhub.orders
-                set source_student_id=%s,
-                    order_type=%s,
-                    order_state=%s,
-                    receivable_cents=%s,
-                    received_cents=%s,
-                    arrears_cents=%s,
-                    raw_json=%s
+                set {', '.join(set_parts)}
                 where source_order_id=%s
                 returning id, source_order_id, source_student_id, order_type, order_state,
                           receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
                 """,
-                (
-                    payload.source_student_id,
-                    payload.order_type,
-                    payload.order_state,
-                    payload.receivable_cents,
-                    payload.received_cents,
-                    payload.arrears_cents,
-                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
-                    source_order_id,
-                ),
+                tuple(values),
             )
             row = cur.fetchone()
             if not row:
