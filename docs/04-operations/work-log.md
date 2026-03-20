@@ -22,7 +22,16 @@
 - Saved round-4 raw artifact: `docs/api-catalog/raw/2026-03-20-round4-mutation-upload-probe.json`.
 - Switched exporter to segmented checkpoint mode via `apps/api/scripts/export_segmented.py`.
 - Added checkpoint files under `apps/api/exports/raw/export_20260320_130436/checkpoints/`.
-- Verified resumable runs:
-  - `hour_cost_flows`: progressed to page 52/438, exported_rows=5100 (resumable).
-  - `income_expense`: completed (1512 rows).
-- `rollcalls` dataset still returns intermittent code=500 "网络环境不稳定" at first page; marked for alternate extraction/retry strategy.
+- Verified resumable runs for large dataset export.
+- Completed migration-critical export set:
+  - `teachers.jsonl` (8)
+  - `students_learning.jsonl` (326)
+  - `orders.jsonl` (1629)
+  - `income_expense.jsonl` (1512)
+  - `hour_cost_flows.jsonl` (43736)
+- `rollcalls` direct API remained unstable (`500 网络环境不稳定`), resolved via browser async export fallback and downloaded:
+  - `rollcalls_export_student.xls`
+  - metadata in `rollcalls_export_student.meta.json`
+- Added milestone + usage docs for next agents:
+  - `docs/03-delivery/export-milestone-2026-03-20.md`
+  - `docs/runbooks/export-data-usage.md`

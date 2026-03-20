@@ -1,23 +1,26 @@
 # Current Status
 
 ## Summary
-- Documentation framework initialized.
-- Round-2 deep scan completed for high-priority data modules.
+- Export milestone reached: migration-critical datasets are fully exported and consolidated.
 
 ## Completed
 - Root handover router created: `AGENT_ENTRY.md`
 - Core docs skeleton created under `/docs`
-- Initial menu-level API scan completed.
-- Deep scan completed for key domains: 学生/老师/订单/上课记录/收支明细/课消记录.
+- API discovery (menu + deep + hidden actions) completed for key business domains.
+- Segmented/resumable export pipeline implemented.
+- Exported datasets delivered and summarized:
+  - teachers, students_learning, orders, income_expense, hour_cost_flows
+  - rollcalls via browser async export fallback (xls)
+- Export summary + milestone docs completed.
 
 ## In Progress
-- Final missing parts: import upload chain + submit-stage mutation APIs.
+- Normalization and import-staging documentation.
 
 ## Next Actions
-1. Use a safe test tenant/account to capture final-submit mutation endpoints (void/create/update/delete) without business risk.
-2. Capture import full flow endpoints: upload preflight, file upload, async task polling, result retrieval.
-3. Build deduplicated endpoint matrix with method/path/params/response-top-level fields.
-4. Start exporter design doc with checkpoint + retry + incremental strategy.
+1. Convert rollcalls xls to normalized structured format.
+2. Build source-to-target field mapping doc for DB import.
+3. Produce import sequencing and validation report (counts/nulls/duplicates/FK match).
+4. Generate coding-agent task pack for implementation of import pipeline.
 
 ## Risks / Blockers
 - Some APIs only appear under specific role states or popup workflows.
