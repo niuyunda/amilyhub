@@ -1,0 +1,14 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+infra/.env
+apps/api/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local runtime outputs
+apps/api/exports/

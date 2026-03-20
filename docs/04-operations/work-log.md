@@ -1,0 +1,71 @@
+# Work Log
+
+## 2026-03-20
+- Established documentation operating model for full agent-driven continuity.
+- Added root router document `AGENT_ENTRY.md`.
+- Created docs taxonomy for governance, architecture, discovery, delivery, operations, handover.
+- Started API catalog process against live source SaaS via browser navigation.
+- Completed initial menu-level API scan for required modules:
+  - 教务中心: 学员管理/班级管理/课表管理/上课记录/课程管理/物品费用
+  - 财务中心: 订单管理/收支明细/课消记录
+- Saved sanitized raw capture: `docs/api-catalog/raw/2026-03-20-initial-page-scan.json`.
+- Updated master endpoint document: `docs/02-discovery/api-catalog-master.md`.
+- Executed deep scan (Round 2) on key data modules: students, teachers, orders, class records, income/expense, course consumption.
+- Added method + body-key captures from live interactions (search/pagination/detail navigation).
+- Saved deep scan raw artifact: `docs/api-catalog/raw/2026-03-20-deep-scan-key-modules.json`.
+- Executed round-3 hidden action scan (export/detail/print/edit).
+- Captured export async chain and detail-page endpoints for order/class/student/teacher/rollcall modules.
+- Saved round-3 raw artifact: `docs/api-catalog/raw/2026-03-20-round3-hidden-actions.json`.
+- Executed round-4 safe mutation/upload probe (no final submit).
+- Confirmed operation-log API endpoint: `/business/public/opaudit/list`.
+- Import-entry probes for 学员/班级 did not emit upload preflight API at click-only depth.
+- Saved round-4 raw artifact: `docs/api-catalog/raw/2026-03-20-round4-mutation-upload-probe.json`.
+- Switched exporter to segmented checkpoint mode via `apps/api/scripts/export_segmented.py`.
+- Added checkpoint files under `apps/api/exports/raw/export_20260320_130436/checkpoints/`.
+- Verified resumable runs for large dataset export.
+- Completed migration-critical export set:
+  - `teachers.jsonl` (8)
+  - `students_learning.jsonl` (326)
+  - `orders.jsonl` (1629)
+  - `income_expense.jsonl` (1512)
+  - `hour_cost_flows.jsonl` (43736)
+- `rollcalls` direct API remained unstable (`500 网络环境不稳定`), resolved via browser async export fallback and downloaded:
+  - `rollcalls_export_student.xls`
+  - metadata in `rollcalls_export_student.meta.json`
+- Added milestone + usage docs for next agents:
+  - `docs/03-delivery/export-milestone-2026-03-20.md`
+  - `docs/runbooks/export-data-usage.md`
+- Began post-export normalization stage.
+- Parsed rollcalls XLS schema successfully (`465` rows, `24` columns) into `rollcalls_export_student.schema.json`.
+- Added import docs for next agents:
+  - `docs/03-delivery/import-staging-plan.md`
+  - `docs/03-delivery/field-mapping-v1.md`
+- Added PostgreSQL schema design SQL: `apps/api/schema/001_init.sql`.
+- Added raw-to-PostgreSQL import script: `apps/api/scripts/load_raw_to_postgres.py` (idempotent upsert style).
+- Added architecture/API/frontend planning docs:
+  - `docs/01-architecture/db-schema-v1.md`
+  - `docs/03-delivery/backend-api-design-v1.md`
+  - `docs/03-delivery/frontend-page-plan-v1.md`
+- Connection check performed from WSL: port `55432` is reachable but current known credential set did not authenticate; import script is ready and requires valid `DATABASE_URL` runtime.
+- User requested local PostgreSQL via Docker Compose with non-git secret management.
+- Refactored compose to env-driven config and added `.env.example`; created local `infra/.env` (gitignored).
+- Added runbook: `docs/runbooks/postgres-docker-setup.md`.
+- Brought up Postgres container on port 55432 and successfully imported exported data via `load_raw_to_postgres.py`.
+- Added DB import result doc with final row counts: `docs/03-delivery/db-import-result-2026-03-20.md`.
+- Implemented FastAPI bootstrap with first production-read endpoints (students/orders/hour_cost_flows + health).
+- Added DB config/connection helpers and verified endpoints via TestClient smoke test.
+- Added backend implementation status doc: `docs/03-delivery/backend-implementation-status.md`.
+- Expanded FastAPI implementation with additional read APIs: teachers, income-expense, rollcalls, dashboard summary, student detail.
+- Verified all newly added endpoints return 200 via TestClient against imported PostgreSQL dataset.
+- Per user request, refreshed documentation set and entry routing docs:
+  - Updated `AGENT_ENTRY.md`
+  - Added/updated root `README.md`
+  - Refreshed `docs/README.md`
+  - Refreshed `docs/handover/current-status.md`
+- `READ.md` retained as original requirement transcript; `README.md` is now canonical project overview.
+- Refactored docs structure to keep only current status + actionable todo as primary handover.
+- Updated entry linkage across `AGENT_ENTRY.md`, root `README.md`, and `docs/README.md`.
+- Added `docs/handover/todo.md` as single source for next actions.
+- Removed outdated phase docs:
+  - `docs/03-delivery/agent-task-pack-phase1.md`
+  - `docs/runbooks/api-discovery.md`

@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-03-20",
+  "phase": "round4-mutation-upload-probe",
+  "strategy": "open action entries/dialogs without final submit",
+  "findings": [
+    {
+      "page": "订单详情",
+      "actions": ["操作日志", "发起合同", "作废订单"],
+      "endpoints": [
+        {"method": "POST", "path": "/business/public/opaudit/list", "bodyKeys": ["current", "size", "targetId"]}
+      ],
+      "notes": "Confirmed operation-log read API. Did not execute destructive confirmation for void-order."
+    },
+    {
+      "page": "学员管理",
+      "actions": ["导入学员"],
+      "endpoints": [],
+      "notes": "No immediate preflight/upload API observed on click; likely requires file chooser interaction and/or client-side flow before request emission."
+    },
+    {
+      "page": "班级管理",
+      "actions": ["导入班级"],
+      "endpoints": [
+        {"method": "POST", "path": "/business/public/class/list", "bodyKeys": ["current", "size", "courseType", "classNameLike", "selectClass", "courseId"]}
+      ],
+      "notes": "Only list refresh observed; no upload API emitted at probe depth."
+    }
+  ],
+  "gaps": [
+    "import upload preflight endpoint",
+    "import task polling endpoint",
+    "mutation submit endpoints (void/update/create) before final confirmation"
+  ]
+}
