@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -157,17 +156,7 @@ export default function StudentDetailPage() {
       {status === "ready" && profile ? (
         <>
           <section className="rounded-xl border bg-background p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
-              <div>
-                <h1 className="text-2xl font-semibold">学员详情</h1>
-                <p className="mt-1 text-sm text-muted-foreground">学员ID：{studentId}</p>
-              </div>
-              <Link href="/students">
-                <Button variant="outline">返回学员列表</Button>
-              </Link>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-semibold">{profile.student.name}</h2>
@@ -195,12 +184,12 @@ export default function StudentDetailPage() {
             </div>
           </section>
 
-          <section className="border-b">
-            <div className="flex gap-6 px-1">
+          <section>
+            <div className="inline-flex rounded-2xl bg-muted p-1">
               {TABS.map((item) => (
                 <button
                   key={item}
-                  className={`border-b-2 pb-2 text-sm ${tab === item ? "border-primary text-primary font-medium" : "border-transparent text-muted-foreground"}`}
+                  className={`rounded-xl px-4 py-2 text-sm transition ${tab === item ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   onClick={() => setTab(item)}
                 >
                   {item}
