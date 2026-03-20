@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { PageHeader } from "@/components/common/page-header";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,16 +150,6 @@ export default function StudentDetailPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="学员详情"
-        description={`学员ID：${studentId}`}
-        actions={
-          <Link href="/students">
-            <Button variant="outline">返回学员列表</Button>
-          </Link>
-        }
-      />
-
       {status === "loading" ? <LoadingState text="正在加载学员详情..." /> : null}
       {status === "error" ? <ErrorState message={error || "请求失败，请稍后重试"} /> : null}
       {status === "forbidden" ? <ForbiddenState /> : null}
@@ -168,7 +157,17 @@ export default function StudentDetailPage() {
       {status === "ready" && profile ? (
         <>
           <section className="rounded-xl border bg-background p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+              <div>
+                <h1 className="text-2xl font-semibold">学员详情</h1>
+                <p className="mt-1 text-sm text-muted-foreground">学员ID：{studentId}</p>
+              </div>
+              <Link href="/students">
+                <Button variant="outline">返回学员列表</Button>
+              </Link>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-semibold">{profile.student.name}</h2>
