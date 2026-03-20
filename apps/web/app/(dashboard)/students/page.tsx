@@ -22,6 +22,11 @@ import type { Student } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
 
+type StudentProfileLite = {
+  courses: Array<{ course_name: string; order_state: string; order_no: string }>;
+  consumption: Array<{ checked_at: string | null; course_name: string; consumed_lessons: number }>;
+};
+
 type StudentFormState = {
   name: string;
   phone: string;
@@ -70,7 +75,7 @@ export default function StudentsPage() {
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "在读" | "停课" | "结课">("all");
   const [selected, setSelected] = useState<Student | null>(null);
-  const [selectedProfile, setSelectedProfile] = useState<any | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<StudentProfileLite | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -340,7 +345,7 @@ export default function StudentsPage() {
             <div>
               <p className="mb-1 text-xs text-muted-foreground">报读课程</p>
               <div className="max-h-40 space-y-1 overflow-auto rounded border p-2">
-                {(selectedProfile?.courses ?? []).slice(0, 10).map((x: any, idx: number) => (
+                {(selectedProfile?.courses ?? []).slice(0, 10).map((x, idx: number) => (
                   <p key={idx}>{x.course_name} · {x.order_state} · {x.order_no}</p>
                 ))}
                 {!(selectedProfile?.courses ?? []).length ? <p className="text-muted-foreground">暂无</p> : null}
@@ -350,7 +355,7 @@ export default function StudentsPage() {
             <div>
               <p className="mb-1 text-xs text-muted-foreground">消费记录</p>
               <div className="max-h-40 space-y-1 overflow-auto rounded border p-2">
-                {(selectedProfile?.consumption ?? []).slice(0, 10).map((x: any, idx: number) => (
+                {(selectedProfile?.consumption ?? []).slice(0, 10).map((x, idx: number) => (
                   <p key={idx}>{x.checked_at ? String(x.checked_at).slice(0, 16).replace("T", " ") : "-"} · {x.course_name} · 消课 {x.consumed_lessons}</p>
                 ))}
                 {!(selectedProfile?.consumption ?? []).length ? <p className="text-muted-foreground">暂无</p> : null}
@@ -427,7 +432,7 @@ function StudentFormDialog({
         <div className="grid gap-3 py-2">
           <Input placeholder="姓名" value={form.name} onChange={(e) => onFormChange({ ...form, name: e.target.value })} />
           <Input placeholder="手机号" value={form.phone} onChange={(e) => onFormChange({ ...form, phone: e.target.value })} />
-          <Input placeholder="出生日期（如 2016年12月01日 或 2016-12-01）" value={form.birthday} onChange={(e) => onFormChange({ ...form, birthday: e.target.value })} />
+          <Input type="date" lang="zh-CN" value={form.birthday} onChange={(e) => onFormChange({ ...form, birthday: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
             <Select value={form.gender} onValueChange={(value: "男" | "女") => onFormChange({ ...form, gender: value })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
