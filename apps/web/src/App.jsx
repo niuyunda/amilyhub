@@ -6,7 +6,7 @@ const tabs = [
   { key: 'students', label: 'Students', desc: '学员列表与详情' },
   { key: 'orders', label: 'Orders', desc: '订单状态与详情' },
   { key: 'hour_cost_flows', label: 'Flows', desc: '课消流水明细' },
-  { key: 'rollcalls', label: 'Rollcalls', desc: '上课记录与检索' },
+
   { key: 'income_expense', label: 'Income / Expense', desc: '收支流水管理' },
 ]
 

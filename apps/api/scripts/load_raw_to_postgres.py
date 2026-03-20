@@ -1,9 +1,8 @@
-import os, json, hashlib
+import os, json
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime, timezone
 import psycopg
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1] / 'exports' / 'raw' / 'export_20260320_130436'
 DB = os.getenv('DATABASE_URL')
@@ -67,7 +66,15 @@ def run():
             continue
         sid = str(sidv)
         cur.execute('''insert into amilyhub.students(source_student_id,name,phone,gender,birthday,status,source_created_at,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s,%s) on conflict (source_student_id) do update set raw_json=excluded.raw_json''',
+                       values(%s,%s,%s,%s,%s,%s,%s,%s)
+                       on conflict (source_student_id) do update set
+                         name=excluded.name,
+                         phone=excluded.phone,
+                         gender=excluded.gender,
+                         birthday=excluded.birthday,
+                         status=excluded.status,
+                         source_created_at=excluded.source_created_at,
+                         raw_json=excluded.raw_json''',
                     (sid, pick(sb,'name', 'studentName') or pick(r,'name'), pick(sb,'phone','mobile') or pick(r,'phone'), pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','students',%s,'ok')", (n,))
@@ -75,11 +82,20 @@ def run():
     # orders
     n=0
     for r in load_jsonl(ROOT/'orders.jsonl'):
-        oid = str(pick(r,'voucherId','businessId','id','businessNo'))
+        oid = str(pick(r,'businessNo','voucherId','businessId','id'))
         if not oid: continue
+        student_id = pick(r, 'studentId') or ((r.get('studentVO') or {}).get('studentId'))
         cur.execute('''insert into amilyhub.orders(source_order_id,source_student_id,order_type,order_state,receivable_cents,received_cents,arrears_cents,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s,%s) on conflict (source_order_id) do update set raw_json=excluded.raw_json''',
-                    (oid, pick(r,'studentId'), pick(r,'businessType','orderType'), pick(r,'businessState','state'), cents(pick(r,'shouldFee','shouldAmount')), cents(pick(r,'realFee','realAmount')), cents(pick(r,'arrearsFee','arrearsAmount')), json.dumps(r,ensure_ascii=False)))
+                       values(%s,%s,%s,%s,%s,%s,%s,%s)
+                       on conflict (source_order_id) do update set
+                         source_student_id=excluded.source_student_id,
+                         order_type=excluded.order_type,
+                         order_state=excluded.order_state,
+                         receivable_cents=excluded.receivable_cents,
+                         received_cents=excluded.received_cents,
+                         arrears_cents=excluded.arrears_cents,
+                         raw_json=excluded.raw_json''',
+                    (oid, student_id, pick(r,'businessType','orderType'), pick(r,'businessState','state'), cents(pick(r,'shouldFee','shouldAmount')), cents(pick(r,'paidAmount','realFee','realAmount')), cents(pick(r,'unpaidAmount','arrearsFee','arrearsAmount')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','orders',%s,'ok')", (n,))
 
@@ -89,7 +105,14 @@ def run():
         rid = str(pick(r,'id'))
         if not rid: continue
         cur.execute('''insert into amilyhub.income_expense(source_id,source_order_id,item_type,direction,amount_cents,operation_date,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s) on conflict (source_id) do update set raw_json=excluded.raw_json''',
+                       values(%s,%s,%s,%s,%s,%s,%s)
+                       on conflict (source_id) do update set
+                         source_order_id=excluded.source_order_id,
+                         item_type=excluded.item_type,
+                         direction=excluded.direction,
+                         amount_cents=excluded.amount_cents,
+                         operation_date=excluded.operation_date,
+                         raw_json=excluded.raw_json''',
                     (rid, pick(r,'businessNo','orderNo'), pick(r,'itemName','bizType'), pick(r,'type','direction'), cents(pick(r,'amount','money')), to_date(pick(r,'operationDate')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','income_expense',%s,'ok')", (n,))
@@ -100,24 +123,24 @@ def run():
         rid = str(pick(r,'id'))
         if not rid: continue
         cur.execute('''insert into amilyhub.hour_cost_flows(source_id,source_student_id,source_teacher_id,source_class_id,source_course_id,cost_type,source_type,cost_hours,cost_amount_cents,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) on conflict (source_id) do update set raw_json=excluded.raw_json''',
+                       values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       on conflict (source_id) do update set
+                         source_student_id=excluded.source_student_id,
+                         source_teacher_id=excluded.source_teacher_id,
+                         source_class_id=excluded.source_class_id,
+                         source_course_id=excluded.source_course_id,
+                         cost_type=excluded.cost_type,
+                         source_type=excluded.source_type,
+                         cost_hours=excluded.cost_hours,
+                         cost_amount_cents=excluded.cost_amount_cents,
+                         raw_json=excluded.raw_json''',
                     (rid, pick(r,'studentId'), pick(r,'teacherId'), pick(r,'classId'), pick(r,'courseId'), pick(r,'costType'), pick(r,'sourceType'), pick(r,'costHour'), cents(pick(r,'costAmount','amount')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','hour_cost_flows',%s,'ok')", (n,))
 
-    # rollcalls xls
-    xls = ROOT/'rollcalls_export_student.xls'
-    if xls.exists():
-        df = pd.read_excel(xls)
-        n=0
-        for _,row in df.iterrows():
-            d={k:(None if pd.isna(v) else v) for k,v in row.to_dict().items()}
-            h=hashlib.sha1(json.dumps(d,ensure_ascii=False,sort_keys=True,default=str).encode()).hexdigest()
-            cur.execute('''insert into amilyhub.rollcalls(source_row_hash,student_name,class_name,course_name,teacher_name,rollcall_time,class_time_range,status,cost_amount_cents,raw_json)
-                           values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) on conflict (source_row_hash) do nothing''',
-                        (h, str(d.get('学员姓名') or d.get('学员') or ''), str(d.get('班级名称') or d.get('班级') or ''), str(d.get('授课课程') or d.get('课程名称') or ''), str(d.get('上课老师') or d.get('老师') or ''), str(d.get('点名时间') or d.get('课消时间') or ''), str(d.get('上课时间') or ''), str(d.get('状态') or ''), cents(d.get('课消金额')), json.dumps(d,ensure_ascii=False,default=str)))
-            n+=1
-        cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','rollcalls',%s,'ok')", (n,))
+    # rollcalls are currently excluded from linkage model (text-export only, no stable IDs)
+    cur.execute("truncate table amilyhub.rollcalls")
+    cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status,detail) values('20260320','rollcalls',0,'skipped','{\"reason\":\"disabled-temporarily-invalid-linkage\"}')")
 
     conn.commit()
     cur.close(); conn.close()
