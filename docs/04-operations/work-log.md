@@ -35,3 +35,8 @@
 - Added milestone + usage docs for next agents:
   - `docs/03-delivery/export-milestone-2026-03-20.md`
   - `docs/runbooks/export-data-usage.md`
+- Began post-export normalization stage.
+- Parsed rollcalls XLS schema successfully (`465` rows, `24` columns) into `rollcalls_export_student.schema.json`.
+- Added import docs for next agents:
+  - `docs/03-delivery/import-staging-plan.md`
+  - `docs/03-delivery/field-mapping-v1.md`
