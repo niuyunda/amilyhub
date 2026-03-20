@@ -2,22 +2,81 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 
 const tabs = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'students', label: 'Students' },
-  { key: 'orders', label: 'Orders' },
-  { key: 'hour_cost_flows', label: 'Hour Cost Flows' },
-  { key: 'rollcalls', label: 'Rollcalls' },
-  { key: 'income_expense', label: 'Income / Expense' },
+  { key: 'dashboard', label: 'Dashboard', desc: '业务概览与数据质量' },
+  { key: 'students', label: 'Students', desc: '学员列表与详情' },
+  { key: 'orders', label: 'Orders', desc: '订单状态与详情' },
+  { key: 'hour_cost_flows', label: 'Flows', desc: '课消流水明细' },
+  { key: 'rollcalls', label: 'Rollcalls', desc: '上课记录与检索' },
+  { key: 'income_expense', label: 'Income / Expense', desc: '收支流水管理' },
 ]
 
-function DataTable({ rows, onRowClick }) {
+const pageTitleMap = Object.fromEntries(tabs.map((t) => [t.key, t.label]))
+const pageDescMap = Object.fromEntries(tabs.map((t) => [t.key, t.desc]))
+
+function centsToYuan(cents) {
+  const n = Number(cents || 0)
+  return (n / 100).toFixed(2)
+}
+
+function groupByCount(rows, key) {
+  const map = new Map()
+  for (const row of rows || []) {
+    const v = row?.[key] ?? '(empty)'
+    map.set(v, (map.get(v) || 0) + 1)
+  }
+  return Array.from(map.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+}
+
+function formatFieldName(key) {
+  return String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (s) => s.toUpperCase())
+}
+
+function EmptyState({ title = 'No data', hint = 'Try adjusting filters or check data import.' }) {
+  return (
+    <div className="state-card empty">
+      <strong>{title}</strong>
+      <p>{hint}</p>
+    </div>
+  )
+}
+
+function LoadingState({ text = 'Loading...' }) {
+  return (
+    <div className="state-card loading">
+      <div className="spinner" />
+      <p>{text}</p>
+    </div>
+  )
+}
+
+function ErrorState({ error, onRetry }) {
+  return (
+    <div className="state-card error">
+      <strong>Load failed</strong>
+      <p>{error || 'Unknown error'}</p>
+      {onRetry && (
+        <button className="btn btn-primary" onClick={onRetry}>
+          Retry
+        </button>
+      )}
+    </div>
+  )
+}
+
+function DataTable({ rows, loading, error, onRetry, onRowClick }) {
   const columns = useMemo(() => {
     const set = new Set()
     rows.forEach((r) => Object.keys(r || {}).forEach((k) => set.add(k)))
     return Array.from(set)
   }, [rows])
 
-  if (!rows?.length) return <p className="muted">No data</p>
+  if (loading) return <LoadingState text="Loading table data..." />
+  if (error) return <ErrorState error={error} onRetry={onRetry} />
+  if (!rows?.length) return <EmptyState />
 
   return (
     <div className="table-wrap">
@@ -25,7 +84,7 @@ function DataTable({ rows, onRowClick }) {
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c}>{c}</th>
+              <th key={c}>{formatFieldName(c)}</th>
             ))}
           </tr>
         </thead>
@@ -56,34 +115,117 @@ function SummaryCards({ summary }) {
   return (
     <div className="cards">
       {cards.map((card) => (
-        <div className="card" key={card.key}>
-          <div className="card-key">{card.label}</div>
-          <div className="card-value">{String(card.value)}</div>
-        </div>
+        <article className="metric-card" key={card.key}>
+          <p>{card.label}</p>
+          <h3>{String(card.value)}</h3>
+        </article>
       ))}
     </div>
   )
 }
 
-function SidePanel({ title, loading, error, data, onClose }) {
-  if (!title) return null
+function FilterBar({ children, onReset }) {
+  return (
+    <div className="filter-bar card-shell">
+      <div className="filter-row">{children}</div>
+      <button className="btn" onClick={onReset}>
+        Reset filters
+      </button>
+    </div>
+  )
+}
+
+function Pager({ page, meta, onPrev, onNext }) {
+  const totalPage = Math.max(1, Math.ceil((meta.total || 0) / (meta.page_size || 1)))
+  const disableNext = (meta.page || page) * (meta.page_size || 1) >= (meta.total || 0)
 
   return (
-    <aside className="side-panel">
-      <div className="side-panel-head">
-        <h3>{title}</h3>
-        <button onClick={onClose}>Close</button>
+    <div className="pager card-shell">
+      <div>
+        Page {meta.page || page} / {totalPage} · Total {meta.total || 0}
       </div>
-      {loading && <p className="muted">Loading details...</p>}
-      {error && <p className="error">{error}</p>}
-      {!loading && !error && data && <pre>{JSON.stringify(data, null, 2)}</pre>}
+      <div className="pager-actions">
+        <button className="btn" disabled={page <= 1} onClick={onPrev}>
+          Prev
+        </button>
+        <button className="btn" disabled={disableNext} onClick={onNext}>
+          Next
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DetailPanel({ title, loading, error, data, onClose }) {
+  if (!title) return null
+
+  const sections = buildDetailSections(data)
+
+  return (
+    <aside className={`detail-panel ${data || loading || error ? 'open' : ''}`}>
+      <div className="detail-header">
+        <div>
+          <p className="muted small">Detail Panel</p>
+          <h3>{title}</h3>
+        </div>
+        <button className="btn" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {loading && <LoadingState text="Loading details..." />}
+      {!loading && error && <ErrorState error={error} />}
+      {!loading && !error && !data && <EmptyState title="No detail selected" hint="Click a row to inspect detail data." />}
+
+      {!loading && !error && data && (
+        <div className="detail-content">
+          {sections.map((section) => (
+            <section className="detail-section" key={section.title}>
+              <h4>{section.title}</h4>
+              <div className="kv-grid">
+                {section.items.map((item) => (
+                  <div className="kv-item" key={item.key}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
     </aside>
   )
 }
 
-function centsToYuan(cents) {
-  const n = Number(cents || 0)
-  return (n / 100).toFixed(2)
+function buildDetailSections(data) {
+  if (!data || typeof data !== 'object') return []
+
+  const base = []
+  const nested = []
+
+  Object.entries(data).forEach(([key, value]) => {
+    const label = formatFieldName(key)
+    if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      base.push({ key, label, value: String(value ?? '-') })
+      return
+    }
+
+    if (Array.isArray(value)) {
+      nested.push({
+        title: `${label} (${value.length})`,
+        items: [{ key: `${key}_summary`, label: 'Summary', value: value.length ? 'Contains nested records' : 'Empty list' }],
+      })
+      return
+    }
+
+    if (typeof value === 'object') {
+      const items = Object.entries(value).map(([k, v]) => ({ key: `${key}_${k}`, label: formatFieldName(k), value: String(v ?? '-') }))
+      nested.push({ title: label, items: items.length ? items : [{ key: `${key}_empty`, label: 'Value', value: '-' }] })
+    }
+  })
+
+  return [{ title: 'Basic Fields', items: base.length ? base : [{ key: 'empty', label: 'Value', value: '-' }] }, ...nested]
 }
 
 export function App() {
@@ -111,9 +253,9 @@ export function App() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
 
-  useEffect(() => {
-    if (tab !== 'dashboard') return
+  const isDetailTab = tab === 'students' || tab === 'orders'
 
+  const fetchDashboard = () => {
     setDashboardLoading(true)
     setDashboardError('')
 
@@ -127,11 +269,9 @@ export function App() {
       })
       .catch((e) => setDashboardError(String(e.message || e)))
       .finally(() => setDashboardLoading(false))
-  }, [tab])
+  }
 
-  useEffect(() => {
-    if (tab === 'dashboard') return
-
+  const fetchList = () => {
     setLoading(true)
     setError('')
 
@@ -181,27 +321,39 @@ export function App() {
       })
       .catch((e) => setError(String(e.message || e)))
       .finally(() => setLoading(false))
-  }, [tab, page, q, status, state, direction, studentId, teacherId])
+  }
 
-  const orderStateStats = integrity?.orderStateStats || []
+  useEffect(() => {
+    if (tab !== 'dashboard') return
+    fetchDashboard()
+  }, [tab])
+
+  useEffect(() => {
+    if (tab === 'dashboard') return
+    fetchList()
+  }, [tab, page, q, status, state, direction, studentId, teacherId])
 
   function switchTab(next) {
     setTab(next)
     setPage(1)
-    setQ('')
-    setStatus('')
-    setState('')
-    setDirection('')
-    setStudentId('')
-    setTeacherId('')
+    resetFilters()
     setRows([])
     setMeta({ page: 1, page_size: 20, total: 0 })
     setDetail(null)
     setDetailError('')
   }
 
+  function resetFilters() {
+    setQ('')
+    setStatus('')
+    setState('')
+    setDirection('')
+    setStudentId('')
+    setTeacherId('')
+  }
+
   function loadDetail(row) {
-    if (tab !== 'students' && tab !== 'orders') return
+    if (!isDetailTab) return
 
     const key = tab === 'students' ? row?.source_student_id : row?.source_order_id
     if (!key) return
@@ -220,110 +372,104 @@ export function App() {
       .finally(() => setDetailLoading(false))
   }
 
+  const orderStateStats = integrity?.orderStateStats || []
+
   return (
-    <div className="container">
-      <h1>AmilyHub Frontend P0</h1>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">AmilyHub</div>
+        <nav>
+          {tabs.map((item) => (
+            <button key={item.key} className={`nav-item ${tab === item.key ? 'active' : ''}`} onClick={() => switchTab(item.key)}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <div className="tabs">
-        {tabs.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => switchTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'dashboard' ? (
-        <section>
-          {dashboardLoading && <p className="muted">Loading dashboard...</p>}
-          {dashboardError && <p className="error">{dashboardError}</p>}
-          {!dashboardLoading && !dashboardError && (
-            <>
-              <SummaryCards summary={summary} />
-
-              <div className="split-grid">
-                <div className="card table-card">
-                  <h3>Order state distribution (sampled)</h3>
-                  <DataTable rows={orderStateStats} />
-                </div>
-                <div className="card table-card">
-                  <h3>Data integrity</h3>
-                  <DataTable rows={integrity?.issues || []} />
-                </div>
-              </div>
-            </>
-          )}
-        </section>
-      ) : (
-        <section className="content-with-panel">
-          <div className="main-content">
-            <div className="filter-row">
-              {(tab === 'students' || tab === 'rollcalls') && (
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search keyword" />
-              )}
-
-              {tab === 'students' && (
-                <input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" />
-              )}
-
-              {tab === 'orders' && (
-                <>
-                  <input value={state} onChange={(e) => setState(e.target.value)} placeholder="Order state" />
-                  <input value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="Student ID" />
-                </>
-              )}
-
-              {tab === 'hour_cost_flows' && (
-                <>
-                  <input value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="Student ID" />
-                  <input value={teacherId} onChange={(e) => setTeacherId(e.target.value)} placeholder="Teacher ID" />
-                </>
-              )}
-
-              {tab === 'income_expense' && (
-                <input value={direction} onChange={(e) => setDirection(e.target.value)} placeholder="Direction (收入/支出/IN/OUT)" />
-              )}
-            </div>
-
-            {error && <p className="error">{error}</p>}
-            {loading ? (
-              <p className="muted">Loading...</p>
-            ) : (
-              <DataTable rows={rows} onRowClick={tab === 'students' || tab === 'orders' ? loadDetail : undefined} />
-            )}
-
-            <div className="pager">
-              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                Prev
-              </button>
-              <span>
-                Page {meta.page} / {Math.max(1, Math.ceil((meta.total || 0) / (meta.page_size || 1)))} · Total {meta.total}
-              </span>
-              <button disabled={(meta.page || page) * (meta.page_size || 1) >= (meta.total || 0)} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </button>
-            </div>
+      <div className="main-layout">
+        <header className="topbar">
+          <div>
+            <h1>{pageTitleMap[tab]}</h1>
+            <p className="muted">{pageDescMap[tab]}</p>
           </div>
+          <button className="btn" onClick={() => (tab === 'dashboard' ? fetchDashboard() : fetchList())} disabled={loading || dashboardLoading}>
+            {loading || dashboardLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </header>
 
-          <SidePanel
-            title={tab === 'students' ? 'Student details' : tab === 'orders' ? 'Order details' : ''}
-            loading={detailLoading}
-            error={detailError}
-            data={detail}
-            onClose={() => setDetail(null)}
-          />
-        </section>
-      )}
+        <main className="content">
+          {tab === 'dashboard' ? (
+            <section className="stack-lg">
+              {dashboardLoading && <LoadingState text="Loading dashboard..." />}
+              {!dashboardLoading && dashboardError && <ErrorState error={dashboardError} onRetry={fetchDashboard} />}
+              {!dashboardLoading && !dashboardError && (
+                <>
+                  <SummaryCards summary={summary} />
+
+                  <div className="split-grid">
+                    <section className="card-shell">
+                      <h3>Order state distribution (sampled)</h3>
+                      <DataTable rows={orderStateStats} />
+                    </section>
+                    <section className="card-shell">
+                      <h3>Data integrity</h3>
+                      <DataTable rows={integrity?.issues || []} />
+                    </section>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : (
+            <section className="content-with-panel">
+              <div className="main-content stack-md">
+                <FilterBar onReset={resetFilters}>
+                  {(tab === 'students' || tab === 'rollcalls') && (
+                    <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search keyword" />
+                  )}
+
+                  {tab === 'students' && <input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" />}
+
+                  {tab === 'orders' && (
+                    <>
+                      <input value={state} onChange={(e) => setState(e.target.value)} placeholder="Order state" />
+                      <input value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="Student ID" />
+                    </>
+                  )}
+
+                  {tab === 'hour_cost_flows' && (
+                    <>
+                      <input value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="Student ID" />
+                      <input value={teacherId} onChange={(e) => setTeacherId(e.target.value)} placeholder="Teacher ID" />
+                    </>
+                  )}
+
+                  {tab === 'income_expense' && (
+                    <input value={direction} onChange={(e) => setDirection(e.target.value)} placeholder="Direction (收入/支出/IN/OUT)" />
+                  )}
+                </FilterBar>
+
+                <section className="card-shell">
+                  <DataTable rows={rows} loading={loading} error={error} onRetry={fetchList} onRowClick={isDetailTab ? loadDetail : undefined} />
+                </section>
+
+                <Pager page={page} meta={meta} onPrev={() => setPage((p) => p - 1)} onNext={() => setPage((p) => p + 1)} />
+              </div>
+
+              <DetailPanel
+                title={isDetailTab ? `${tab === 'students' ? 'Student' : 'Order'} details` : ''}
+                loading={detailLoading}
+                error={detailError}
+                data={detail}
+                onClose={() => {
+                  setDetail(null)
+                  setDetailError('')
+                }}
+              />
+            </section>
+          )}
+        </main>
+      </div>
     </div>
   )
-}
-
-function groupByCount(rows, key) {
-  const map = new Map()
-  for (const row of rows || []) {
-    const v = row?.[key] ?? '(empty)'
-    map.set(v, (map.get(v) || 0) + 1)
-  }
-  return Array.from(map.entries())
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
 }

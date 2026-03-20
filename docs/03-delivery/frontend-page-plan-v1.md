@@ -126,3 +126,46 @@ npm run build
 - [ ] Income/Expense 支持 direction 过滤
 - [ ] 各页面加载时显示 Loading，接口异常时显示统一错误信息
 - [ ] 分页 Prev/Next 行为正确，Total 与页码显示正确
+
+---
+
+## SaaS redesign（2026-03-20）
+
+在不改变后端 API 契约和数据交互逻辑的前提下，完成了前端页面的信息架构与 UX/UI 重构，目标为「标准 SaaS 产品体验」。
+
+### 1) 全局布局（桌面优先，响应式）
+- 新增统一三段式布局：左侧导航 + 顶部栏 + 主内容区。
+- 顶部栏支持当前页面标题/说明与刷新操作。
+- 中小屏降级为顶部横向导航，内容区与详情面板自动转单列。
+
+### 2) 设计系统基础（浅色主题）
+- 建立全局 design tokens：颜色、边框、阴影、圆角、间距、字体层级。
+- 统一基础组件样式：按钮、输入框、表格、卡片、状态容器。
+- 预留主题变量结构（`--*` 变量），后续可扩展 dark mode。
+
+### 3) 页面体验优化
+- Dashboard：
+  - KPI 卡片重做（视觉层级更清晰，数字更突出）。
+  - 区块化展示“订单状态分布 / 数据完整性”。
+- Students / Orders / Flows / Rollcalls / IncomeExpense：
+  - 统一 FilterBar（筛选输入 + Reset）。
+  - 统一 DataTable 容器（表头、滚动、行 hover、点击态）。
+  - 统一分页区（页码/总数 + Prev/Next 行为）。
+  - 统一空态、加载态、错误态（含 Retry）。
+- 详情面板：
+  - 标题区和关闭行为清晰。
+  - 详情按字段分组展示（基础字段 + 嵌套对象分区），可读性更好。
+
+### 4) 可用性改进
+- 通过固定容器最小高度与状态组件，减少加载/空数据时页面跳动。
+- 按钮状态明确（禁用态、刷新进行中）。
+- 错误提示统一且更友好（列表、Dashboard、详情均一致）。
+
+### 5) 接口兼容性
+- 保持原有接口与参数映射不变：
+  - students: `q`, `status`, `page`, `page_size`
+  - orders: `student_id`, `state`, `page`, `page_size`
+  - hour-cost-flows: `student_id`, `teacher_id`, `page`, `page_size`
+  - rollcalls: `q`, `page`, `page_size`
+  - income-expense: `direction`, `page`, `page_size`
+- 保留原有详情接口：`GET /students/{source_student_id}`、`GET /orders/{source_order_id}`。
