@@ -64,6 +64,17 @@ export default function DashboardPage() {
             <KpiCard title="本月消课" value={data.kpi.monthlyConsumedHours} />
           </section>
 
+          <section className="rounded-2xl border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">趋势概览</h3>
+                <p className="text-xs text-muted-foreground">近 14 天核心指标（示意）</p>
+              </div>
+              <div className="text-xs text-muted-foreground">Last 14 days</div>
+            </div>
+            <div className="h-36 rounded-xl bg-gradient-to-b from-primary/15 via-primary/5 to-transparent" />
+          </section>
+
           <section className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
@@ -102,12 +113,12 @@ export default function DashboardPage() {
 
 function KpiCard({ title, value }: { title: string; value: number }) {
   return (
-    <Card>
+    <Card className="rounded-2xl">
       <CardHeader className="pb-2">
         <CardDescription>{title}</CardDescription>
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-semibold">{value}</p>
+        <p className="text-3xl font-semibold tracking-tight">{value}</p>
       </CardContent>
     </Card>
   );

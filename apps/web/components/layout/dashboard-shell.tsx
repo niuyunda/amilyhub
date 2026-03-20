@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bell, ChevronDown, Search } from "lucide-react";
+import { Bell, ChevronDown, LayoutDashboard, Search, Users, UserSquare2, GraduationCap, ReceiptText, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { coreNavItems } from "@/src/constants/navigation";
 import type { CurrentUser } from "@/src/types/domain";
 
@@ -28,25 +29,36 @@ const pageMeta: Record<string, { title: string; desc: string }> = Object.fromEnt
   coreNavItems.map((item) => [item.href, { title: item.label, desc: item.desc }]),
 );
 
+const navIcons = {
+  dashboard: LayoutDashboard,
+  students: Users,
+  teachers: UserSquare2,
+  classes: GraduationCap,
+  orders: ReceiptText,
+  finance: WalletCards,
+} as const;
+
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const current = pageMeta[pathname] ?? { title: "工作台", desc: "机构经营总览与待办" };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="grid min-h-screen grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)] max-lg:grid-cols-1">
-        <aside className="border-r bg-slate-950 px-3 py-4 text-slate-200 max-lg:border-b max-lg:border-r-0">
-          <div className="px-2 pb-4 text-lg font-bold text-white">AmilyHub 教务系统</div>
-          <nav className="space-y-1 max-lg:flex max-lg:space-x-1 max-lg:space-y-0 max-lg:overflow-x-auto max-lg:pb-1">
+    <div className="min-h-screen bg-muted/40">
+      <div className="grid min-h-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-none border bg-background shadow-sm max-lg:grid-cols-1">
+        <aside className="border-r border-sidebar-border bg-sidebar/60 p-4 text-sidebar-foreground max-lg:border-b max-lg:border-r-0">
+          <div className="rounded-xl bg-card px-3 py-3 text-lg font-bold text-sidebar-foreground">AmilyHub 教务系统</div>
+          <nav className="mt-4 space-y-1 max-lg:flex max-lg:space-x-1 max-lg:space-y-0 max-lg:overflow-x-auto max-lg:pb-1">
             {coreNavItems.map((item) => {
               const active = pathname === item.href;
+              const Icon = navIcons[item.key];
               return (
                 <Link key={item.key} href={item.href} className="max-lg:flex-shrink-0">
                   <Button
                     variant={active ? "secondary" : "ghost"}
-                    className="w-full justify-start text-slate-100 hover:text-white data-[active=true]:bg-slate-700 max-lg:w-auto max-lg:whitespace-nowrap"
+                    className="h-10 w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground max-lg:w-auto max-lg:whitespace-nowrap"
                     data-active={active}
                   >
+                    <Icon className="h-4 w-4" />
                     {item.label}
                   </Button>
                 </Link>
@@ -56,11 +68,12 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-30 border-b bg-background/95 px-6 py-4 backdrop-blur">
+          <header className="sticky top-0 z-30 border-b bg-background/90 px-6 py-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Workspace</p>
                 <h1 className="text-xl font-semibold">{current.title}</h1>
-                <p className="text-sm text-muted-foreground">{current.desc}</p>
+                <p className="text-sm text-muted-foreground/90">{current.desc}</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -71,6 +84,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 <Button variant="ghost" size="icon" aria-label="消息通知">
                   <Bell className="h-4 w-4" />
                 </Button>
+                <ThemeToggle />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="gap-2">
