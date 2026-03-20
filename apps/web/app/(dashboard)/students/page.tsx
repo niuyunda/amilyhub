@@ -78,6 +78,26 @@ export default function StudentsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<StudentFormState>(DEFAULT_FORM);
+  const [statusStats, setStatusStats] = useState({ all: 0, active: 0, suspended: 0, ended: 0 });
+
+  const loadStatusStats = useCallback(async (q: string) => {
+    const [allRes, activeRes, suspendedRes, endedRes] = await Promise.all([
+      getStudents({ page: 1, pageSize: 1, keyword: q || undefined }),
+      getStudents({ page: 1, pageSize: 1, keyword: q || undefined, status: "在读" }),
+      getStudents({ page: 1, pageSize: 1, keyword: q || undefined, status: "停课" }),
+      getStudents({ page: 1, pageSize: 1, keyword: q || undefined, status: "结课" }),
+    ]);
+    if (allRes.kind === "forbidden" || activeRes.kind === "forbidden" || suspendedRes.kind === "forbidden" || endedRes.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
+    }
+    setStatusStats({
+      all: allRes.data.total,
+      active: activeRes.data.total,
+      suspended: suspendedRes.data.total,
+      ended: endedRes.data.total,
+    });
+  }, []);
 
   const load = useCallback(async (
     nextPage: number,
@@ -99,8 +119,9 @@ export default function StudentsPage() {
     setRows(result.data.items);
     setTotal(result.data.total);
     setPage(result.data.page);
+    await loadStatusStats(q);
     setStatus("ready");
-  }, [keyword, statusFilter]);
+  }, [keyword, statusFilter, loadStatusStats]);
 
   useEffect(() => {
     load(1).catch((e: unknown) => {
@@ -120,16 +141,6 @@ export default function StudentsPage() {
       })
       .catch(() => setSelectedProfile(null));
   }, [selected]);
-
-  const statusStats = useMemo(() => {
-    const stats = { all: total, active: 0, suspended: 0, ended: 0 };
-    for (const r of rows) {
-      if (r.status === "在读") stats.active += 1;
-      if (r.status === "停课") stats.suspended += 1;
-      if (r.status === "结课") stats.ended += 1;
-    }
-    return stats;
-  }, [rows, total]);
 
   const columns: Array<ColumnDef<Student>> = useMemo(
     () => [
@@ -261,13 +272,6 @@ export default function StudentsPage() {
             <Button variant="outline" onClick={exportCsv}>导出</Button>
           </div>
 
-          <div className="flex flex-wrap gap-2 text-sm">
-            <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1, { statusFilter: "all" }); }}>全部学员（{statusStats.all}）</Button>
-            <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1, { statusFilter: "在读" }); }}>在读学员（{statusStats.active}）</Button>
-            <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1, { statusFilter: "停课" }); }}>停课学员（{statusStats.suspended}）</Button>
-            <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1, { statusFilter: "结课" }); }}>结课学员（{statusStats.ended}）</Button>
-          </div>
-
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">搜索学员</p>
             <div className="flex flex-wrap gap-2">
@@ -287,6 +291,13 @@ export default function StudentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="flex flex-wrap gap-2 text-sm">
+        <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1, { statusFilter: "all" }); }}>全部学员（{statusStats.all}）</Button>
+        <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1, { statusFilter: "在读" }); }}>在读学员（{statusStats.active}）</Button>
+        <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1, { statusFilter: "停课" }); }}>停课学员（{statusStats.suspended}）</Button>
+        <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1, { statusFilter: "结课" }); }}>结课学员（{statusStats.ended}）</Button>
+      </div>
 
       {status === "loading" ? <LoadingState text="学员列表加载中..." /> : null}
       {status === "error" ? <ErrorState message={error || "请求失败，请稍后重试"} onRetry={() => void load(page)} /> : null}
