@@ -1,0 +1,33 @@
+{
+  "teachers": {
+    "file": "exports/raw/export_20260320_130436/teachers.jsonl",
+    "rows": 8,
+    "sizeBytes": 2840
+  },
+  "students_learning": {
+    "file": "exports/raw/export_20260320_130436/students_learning.jsonl",
+    "rows": 326,
+    "sizeBytes": 401711
+  },
+  "orders": {
+    "file": "exports/raw/export_20260320_130436/orders.jsonl",
+    "rows": 1629,
+    "sizeBytes": 2901383
+  },
+  "income_expense": {
+    "file": "exports/raw/export_20260320_130436/income_expense.jsonl",
+    "rows": 1512,
+    "sizeBytes": 1356637
+  },
+  "hour_cost_flows": {
+    "file": "exports/raw/export_20260320_130436/hour_cost_flows.jsonl",
+    "rows": 43736,
+    "sizeBytes": 38311690
+  },
+  "rollcalls_export_student": {
+    "file": "exports/raw/export_20260320_130436/rollcalls_export_student.xls",
+    "sizeBytes": 206848,
+    "exportId": "2034816889159266305",
+    "resourceId": "2034816889136029697"
+  }
+}
