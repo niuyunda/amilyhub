@@ -1,5 +1,12 @@
-import { classes, dashboardData, financeRecords, orders, students, teachers } from "@/src/mocks/core-data";
-import type { FinanceSummary } from "@/src/types/domain";
+import type {
+  ClassRoom,
+  DashboardData,
+  FinanceRecord,
+  FinanceSummary,
+  Order,
+  Student,
+  Teacher,
+} from "@/src/types/domain";
 import type {
   ClassQuery,
   FinanceQuery,
@@ -10,91 +17,246 @@ import type {
   TeacherQuery,
 } from "@/src/types/service";
 
-const NETWORK_LATENCY_MS = 220;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000/api/v1";
 
-async function withDelay<T>(value: T): Promise<T> {
-  await new Promise((resolve) => setTimeout(resolve, NETWORK_LATENCY_MS));
-  return value;
+type ApiList<T> = { ok: boolean; data: T[]; page: { page: number; page_size: number; total: number } };
+type ApiObj<T> = { ok: boolean; data: T };
+
+function toYuan(cents?: number | null): number {
+  return Number(((cents ?? 0) / 100).toFixed(2));
 }
 
-function paginate<T>(list: T[], page: number, pageSize: number): PageResult<T> {
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-  return {
-    items: list.slice(start, end),
-    page,
-    pageSize,
-    total: list.length,
-  };
+async function getJson<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
+  const sp = new URLSearchParams();
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== "") sp.set(k, String(v));
+    });
+  }
+  const url = `${API_BASE}${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (res.status === 403) throw new Error("FORBIDDEN");
+  if (!res.ok) throw new Error(`HTTP_${res.status}`);
+  return res.json() as Promise<T>;
 }
 
-function containsText(raw: string, keyword?: string): boolean {
-  if (!keyword) return true;
-  return raw.toLowerCase().includes(keyword.toLowerCase());
+function mapStudentStatus(raw?: string): Student["status"] {
+  if (raw === "NORMAL" || raw === "在读" || raw === "active" || raw === "ACTIVE") return "在读";
+  if (raw === "停课") return "停课";
+  return "结课";
 }
 
-export async function getDashboard(): Promise<ServiceResult<typeof dashboardData>> {
-  return withDelay({ kind: "ok", data: dashboardData });
+function mapTeacherStatus(raw?: string): Teacher["status"] {
+  if (raw === "在职" || raw === "ON" || raw === "NORMAL") return "在职";
+  return "停用";
 }
 
-export async function getStudents(query: StudentQuery): Promise<ServiceResult<PageResult<(typeof students)[number]>>> {
-  const filtered = students.filter((item) => {
-    const keywordPassed = containsText(`${item.name} ${item.phone}`, query.keyword);
-    const statusPassed = query.status ? item.status === query.status : true;
-    return keywordPassed && statusPassed;
-  });
-  return withDelay({ kind: "ok", data: paginate(filtered, query.page, query.pageSize) });
+function mapOrderStatus(raw?: string): Order["status"] {
+  if (raw === "PAID" || raw === "已支付") return "已支付";
+  if (raw === "WAITING" || raw === "待支付") return "待支付";
+  return "已作废";
 }
 
-export async function getTeachers(query: TeacherQuery): Promise<ServiceResult<PageResult<(typeof teachers)[number]>>> {
-  const filtered = teachers.filter((item) => {
-    const keywordPassed = containsText(`${item.name} ${item.phone} ${item.subject}`, query.keyword);
-    const statusPassed = query.status ? item.status === query.status : true;
-    return keywordPassed && statusPassed;
-  });
-  return withDelay({ kind: "ok", data: paginate(filtered, query.page, query.pageSize) });
+function mapOrderType(raw?: string): Order["orderType"] {
+  if (raw?.includes("REFUND") || raw === "退费") return "退费";
+  if (raw?.includes("RENEW") || raw === "续费") return "续费";
+  return "报名";
 }
 
-export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageResult<(typeof classes)[number]>>> {
-  const filtered = classes.filter((item) => {
-    const keywordPassed = containsText(`${item.name} ${item.courseName} ${item.campus}`, query.keyword);
-    const statusPassed = query.status ? item.status === query.status : true;
-    const teacherPassed = query.teacherName ? item.teacherName.includes(query.teacherName) : true;
-    return keywordPassed && statusPassed && teacherPassed;
-  });
-  return withDelay({ kind: "ok", data: paginate(filtered, query.page, query.pageSize) });
+function ok<T>(data: T): ServiceResult<T> {
+  return { kind: "ok", data };
 }
 
-export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageResult<(typeof orders)[number]>>> {
-  const filtered = orders.filter((item) => {
-    const keywordPassed = containsText(`${item.orderNo} ${item.studentName}`, query.keyword);
-    const statusPassed = query.status ? item.status === query.status : true;
-    const typePassed = query.orderType ? item.orderType === query.orderType : true;
-    return keywordPassed && statusPassed && typePassed;
-  });
-  return withDelay({ kind: "ok", data: paginate(filtered, query.page, query.pageSize) });
+export async function getDashboard(): Promise<ServiceResult<DashboardData>> {
+  try {
+    const s = await getJson<ApiObj<any>>("/dashboard/summary");
+    return ok({
+      kpi: {
+        studentTotal: Number(s.data.students ?? 0),
+        activeStudents: Number(s.data.active_students ?? 0),
+        monthlyOrders: Number(s.data.orders ?? 0),
+        monthlyIncomeYuan: toYuan(Number(s.data.income_cents ?? 0)),
+        monthlyConsumedHours: Number(s.data.hour_cost_flows ?? 0),
+      },
+      todos: [
+        { id: "rc", title: "待点名记录", count: Number(s.data.rollcalls ?? 0) },
+        { id: "orders", title: "订单总数", count: Number(s.data.orders ?? 0) },
+      ],
+      quickActions: [
+        { id: "student", label: "新增学员" },
+        { id: "order", label: "新建订单" },
+        { id: "class", label: "班级管理" },
+        { id: "finance", label: "收支明细" },
+      ],
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getStudents(query: StudentQuery): Promise<ServiceResult<PageResult<Student>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/students", {
+      q: query.keyword,
+      status: query.status,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.source_student_id ?? x.id),
+        name: x.name ?? "-",
+        phone: x.phone ?? "-",
+        gender: x.gender === "WOMEN" || x.gender === "女" ? "女" : "男",
+        status: mapStudentStatus(x.status),
+        consultant: "-",
+        latestClassAt: x.source_created_at ? String(x.source_created_at) : "-",
+        remainHours: 0,
+        className: "-",
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getTeachers(query: TeacherQuery): Promise<ServiceResult<PageResult<Teacher>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/teachers", {
+      q: query.keyword,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.source_teacher_id ?? x.id),
+        name: x.name ?? "-",
+        phone: x.phone ?? "-",
+        subject: "-",
+        status: mapTeacherStatus(x.status),
+        classCount: Number(x.current_month_lessons ?? 0),
+        weeklyHours: Number(x.last_month_lessons ?? 0),
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageResult<ClassRoom>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/classes", {
+      q: query.keyword,
+      teacher_name: query.teacherName,
+      status: query.status,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.id),
+        name: x.name ?? "-",
+        courseName: x.course_name ?? "-",
+        teacherName: x.teacher_name ?? "-",
+        campus: x.campus ?? "-",
+        studentCount: Number(x.student_count ?? 0),
+        capacity: Number(x.capacity ?? 0),
+        status: x.status === "已结班" ? "已结班" : "开班中",
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageResult<Order>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/orders", {
+      state: query.status,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    const filtered = r.data.filter((x) => {
+      const keyword = (query.keyword ?? "").toLowerCase();
+      const kwOk = !keyword || String(x.source_order_id ?? "").toLowerCase().includes(keyword);
+      const typeOk = !query.orderType || mapOrderType(x.order_type) === query.orderType;
+      return kwOk && typeOk;
+    });
+    return ok({
+      items: filtered.map((x) => ({
+        id: String(x.id),
+        orderNo: String(x.source_order_id ?? "-"),
+        studentName: String(x.source_student_id ?? "-"),
+        orderType: mapOrderType(x.order_type),
+        status: mapOrderStatus(x.order_state),
+        receivableYuan: toYuan(x.receivable_cents),
+        paidYuan: toYuan(x.received_cents),
+        arrearsYuan: toYuan(x.arrears_cents),
+        createdAt: x.source_created_at ? String(x.source_created_at) : "-",
+      })),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: filtered.length,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
 }
 
 export async function getFinanceRecords(
   query: FinanceQuery,
-): Promise<ServiceResult<{ list: PageResult<(typeof financeRecords)[number]>; summary: FinanceSummary }>> {
-  const filtered = financeRecords.filter((item) => {
-    const keywordPassed = containsText(`${item.serialNo} ${item.bizType} ${item.operator}`, query.keyword);
-    const directionPassed = query.direction ? item.direction === query.direction : true;
-    return keywordPassed && directionPassed;
-  });
-  const totalIncomeYuan = filtered.filter((item) => item.direction === "收入").reduce((sum, item) => sum + item.amountYuan, 0);
-  const totalExpenseYuan = filtered.filter((item) => item.direction === "支出").reduce((sum, item) => sum + item.amountYuan, 0);
-
-  return withDelay({
-    kind: "ok",
-    data: {
-      list: paginate(filtered, query.page, query.pageSize),
-      summary: {
-        totalIncomeYuan,
-        totalExpenseYuan,
-        netIncomeYuan: totalIncomeYuan - totalExpenseYuan,
+): Promise<ServiceResult<{ list: PageResult<FinanceRecord>; summary: FinanceSummary }>> {
+  try {
+    const [list, summary] = await Promise.all([
+      getJson<ApiList<any>>("/income-expense", {
+        q: query.keyword,
+        direction: query.direction,
+        page: query.page,
+        page_size: query.pageSize,
+      }),
+      getJson<ApiObj<any>>("/income-expense/summary", {
+        q: query.keyword,
+        direction: query.direction,
+      }),
+    ]);
+    return ok({
+      list: {
+        items: list.data.map((x) => ({
+          id: String(x.id),
+          serialNo: String(x.source_id ?? "-"),
+          bizType: x.item_type ?? "-",
+          direction: x.direction === "支出" || x.direction === "EXPENSE" ? "支出" : "收入",
+          amountYuan: toYuan(x.amount_cents),
+          paymentMethod: "转账",
+          operator: "-",
+          occurredAt: x.operation_date ? String(x.operation_date) : "-",
+        })),
+        page: list.page.page,
+        pageSize: list.page.page_size,
+        total: list.page.total,
       },
-    },
-  });
+      summary: {
+        totalIncomeYuan: toYuan(summary.data.income_cents),
+        totalExpenseYuan: toYuan(summary.data.expense_cents),
+        netIncomeYuan: toYuan(summary.data.net_income_cents),
+      },
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
 }

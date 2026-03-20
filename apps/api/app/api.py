@@ -598,6 +598,98 @@ def income_expense_summary(
     }
 
 
+@app.get("/api/v1/classes", response_model=ListResponse)
+def list_classes(
+    q: str | None = Query(default=None),
+    teacher_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=20),
+):
+    page, page_size, offset = pager(page, page_size)
+    clauses, params = [], []
+    if q:
+        clauses.append("(class_name ilike %s or course_name ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if teacher_name:
+        clauses.append("teacher_name ilike %s")
+        params.append(f"%{teacher_name}%")
+    if status:
+        clauses.append("status = %s")
+        params.append(status)
+
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total_row = fetch_one(
+        f"""
+        with base as (
+          select
+            coalesce(raw_json->>'classId','') as class_id,
+            coalesce(class_name,'') as class_name,
+            coalesce(course_name,'') as course_name,
+            coalesce(teacher_name,'') as teacher_name,
+            coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
+            coalesce((raw_json->>'totalNumber')::int, 0) as total_number
+          from amilyhub.rollcalls
+          where coalesce(raw_json->>'classId','') <> ''
+        ), agg as (
+          select
+            class_id,
+            max(class_name) as class_name,
+            max(course_name) as course_name,
+            max(teacher_name) as teacher_name,
+            max(total_number) as student_count,
+            case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
+          from base
+          group by class_id
+        )
+        select count(*) as c from agg {cond}
+        """,
+        tuple(params),
+    )
+
+    rows = fetch_rows(
+        f"""
+        with base as (
+          select
+            coalesce(raw_json->>'classId','') as class_id,
+            coalesce(class_name,'') as class_name,
+            coalesce(course_name,'') as course_name,
+            coalesce(teacher_name,'') as teacher_name,
+            coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
+            coalesce((raw_json->>'totalNumber')::int, 0) as total_number
+          from amilyhub.rollcalls
+          where coalesce(raw_json->>'classId','') <> ''
+        ), agg as (
+          select
+            class_id,
+            max(class_name) as class_name,
+            max(course_name) as course_name,
+            max(teacher_name) as teacher_name,
+            max(total_number) as student_count,
+            case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
+          from base
+          group by class_id
+        )
+        select
+          class_id as id,
+          class_name as name,
+          course_name,
+          teacher_name,
+          '-'::text as campus,
+          student_count,
+          greatest(student_count, 1) as capacity,
+          status
+        from agg
+        {cond}
+        order by id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
+    )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total_row or {}).get('c', 0) or 0)}}
+
+
 @app.get("/api/v1/rollcalls", response_model=ListResponse)
 def list_rollcalls(
     q: str | None = Query(default=None),
