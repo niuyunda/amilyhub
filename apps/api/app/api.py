@@ -1,5 +1,7 @@
 import json
 from datetime import date
+import time
+import random
 from decimal import Decimal
 from typing import Any
 
@@ -59,7 +61,7 @@ class ObjectResponse(BaseModel):
 
 
 class StudentUpsertRequest(BaseModel):
-    source_student_id: str = Field(min_length=1)
+    source_student_id: str | None = None
     name: str | None = None
     phone: str | None = None
     gender: str | None = None
@@ -175,6 +177,10 @@ def as_int(value: Any) -> int:
     if isinstance(value, Decimal):
         return int(value)
     return int(value)
+
+
+def generate_student_id() -> str:
+    return f"STU{int(time.time() * 1000)}{random.randint(100, 999)}"
 
 
 def assert_student_exists(source_student_id: str):
@@ -440,6 +446,27 @@ def get_student_profile(source_student_id: str):
         (source_student_id, student.get('name')),
     )
 
+    payments = fetch_rows(
+        """
+        select
+          ie.source_id,
+          ie.source_order_id,
+          ie.item_type,
+          ie.direction,
+          ie.amount_cents,
+          ie.operation_date,
+          ie.source_created_at
+        from amilyhub.income_expense ie
+        where ie.source_order_id in (
+          select o.source_order_id from amilyhub.orders o where o.source_student_id=%s
+        )
+           or coalesce(ie.raw_json->>'studentId','')=%s
+        order by ie.id desc
+        limit 100
+        """,
+        (source_student_id, source_student_id),
+    )
+
     return {
         "ok": True,
         "data": {
@@ -447,6 +474,7 @@ def get_student_profile(source_student_id: str):
             "courses": courses,
             "consumption": consumption,
             "rollcalls": rollcalls,
+            "payments": payments,
         },
     }
 
@@ -455,9 +483,21 @@ def get_student_profile(source_student_id: str):
 def create_student(payload: StudentUpsertRequest):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("select 1 from amilyhub.students where source_student_id=%s", (payload.source_student_id,))
-            if cur.fetchone():
-                raise ApiError(409, "STUDENT_EXISTS", "student already exists")
+            source_student_id = payload.source_student_id
+            if source_student_id:
+                cur.execute("select 1 from amilyhub.students where source_student_id=%s", (source_student_id,))
+                if cur.fetchone():
+                    raise ApiError(409, "STUDENT_EXISTS", "student already exists")
+            else:
+                for _ in range(10):
+                    candidate = generate_student_id()
+                    cur.execute("select 1 from amilyhub.students where source_student_id=%s", (candidate,))
+                    if not cur.fetchone():
+                        source_student_id = candidate
+                        break
+                if not source_student_id:
+                    raise ApiError(500, "STUDENT_ID_GENERATE_FAILED", "failed to generate student id")
+
             cur.execute(
                 """
                 insert into amilyhub.students
@@ -466,13 +506,13 @@ def create_student(payload: StudentUpsertRequest):
                 returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
                 """,
                 (
-                    payload.source_student_id,
+                    source_student_id,
                     payload.name,
                     payload.phone,
                     payload.gender,
                     payload.birthday,
-                    payload.status,
-                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
+                    payload.status or "在读",
+                    json.dumps({**payload.model_dump(mode="json"), "source_student_id": source_student_id, "status": payload.status or "在读"}, ensure_ascii=False, default=str),
                 ),
             )
             row = cur.fetchone()

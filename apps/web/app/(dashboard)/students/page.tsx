@@ -23,7 +23,6 @@ import type { Student } from "@/src/types/domain";
 const PAGE_SIZE = 10;
 
 type StudentFormState = {
-  sourceStudentId: string;
   name: string;
   phone: string;
   gender: "男" | "女";
@@ -32,13 +31,35 @@ type StudentFormState = {
 };
 
 const DEFAULT_FORM: StudentFormState = {
-  sourceStudentId: "",
   name: "",
   phone: "",
   gender: "男",
   birthday: "",
   status: "在读",
 };
+
+function formatDateCn(value: string): string {
+  if (!value || value === "-") return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}年${pad(d.getMonth() + 1)}月${pad(d.getDate())}日`;
+}
+
+function normalizeBirthdayInput(value: string): string | undefined {
+  const text = value.trim();
+  if (!text) return undefined;
+  const replaced = text
+    .replace("年", "-")
+    .replace("月", "-")
+    .replace("日", "")
+    .replace(/\./g, "-")
+    .replace(/\//g, "-");
+  const d = new Date(replaced);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 export default function StudentsPage() {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "forbidden">("loading");
@@ -118,7 +139,7 @@ export default function StudentsPage() {
       { key: "phone", title: "手机号" },
       { key: "className", title: "所在班级" },
       { key: "age", title: "年龄", render: (row) => row.age ?? "-" },
-      { key: "birthday", title: "出生日期" },
+      { key: "birthday", title: "出生日期", render: (row) => formatDateCn(row.birthday) },
       {
         key: "status",
         title: "状态",
@@ -126,7 +147,7 @@ export default function StudentsPage() {
       },
       { key: "consultant", title: "跟进人" },
       { key: "creator", title: "创建人" },
-      { key: "createdAt", title: "创建时间" },
+      { key: "createdAt", title: "创建时间", render: (row) => formatDateCn(row.createdAt) },
     ],
     [],
   );
@@ -142,7 +163,6 @@ export default function StudentsPage() {
       return;
     }
     setForm({
-      sourceStudentId: selected.id,
       name: selected.name,
       phone: selected.phone === "-" ? "" : selected.phone,
       gender: selected.gender,
@@ -153,19 +173,17 @@ export default function StudentsPage() {
   };
 
   const onCreate = async () => {
-    if (!form.sourceStudentId.trim() || !form.name.trim()) {
-      toast.warning("请填写学员ID和姓名");
+    if (!form.name.trim()) {
+      toast.warning("请填写学员姓名");
       return;
     }
     try {
       setSubmitting(true);
       const result = await createStudent({
-        sourceStudentId: form.sourceStudentId.trim(),
         name: form.name.trim(),
         phone: form.phone.trim() || undefined,
         gender: form.gender,
-        birthday: form.birthday || undefined,
-        status: form.status,
+        birthday: normalizeBirthdayInput(form.birthday),
       });
       if (result.kind === "forbidden") {
         setStatus("forbidden");
@@ -189,7 +207,7 @@ export default function StudentsPage() {
         name: form.name.trim() || undefined,
         phone: form.phone.trim() || undefined,
         gender: form.gender,
-        birthday: form.birthday || undefined,
+        birthday: normalizeBirthdayInput(form.birthday),
         status: form.status,
       });
       if (result.kind === "forbidden") {
@@ -313,9 +331,9 @@ export default function StudentsPage() {
               <DetailRow label="状态" value={selected.status} />
               <DetailRow label="所在班级" value={selected.className} />
               <DetailRow label="年龄" value={selected.age ? String(selected.age) : "-"} />
-              <DetailRow label="出生日期" value={selected.birthday} />
+              <DetailRow label="出生日期" value={formatDateCn(selected.birthday)} />
               <DetailRow label="跟进人" value={selected.consultant} />
-              <DetailRow label="创建时间" value={selected.createdAt} />
+              <DetailRow label="创建时间" value={formatDateCn(selected.createdAt)} />
               <DetailRow label="剩余课时" value={`${selected.remainHours}`} />
             </div>
 
@@ -344,10 +362,11 @@ export default function StudentsPage() {
 
       <StudentFormDialog
         title="新增学员"
-        description="创建一条可在学员管理中立即检索与维护的学员记录。"
+        description="创建学员后系统自动生成学员ID，默认纳入在读学员。"
         open={createOpen}
         submitting={submitting}
         form={form}
+        showStatus={false}
         onOpenChange={setCreateOpen}
         onFormChange={setForm}
         onSubmit={onCreate}
@@ -359,6 +378,7 @@ export default function StudentsPage() {
         open={editOpen}
         submitting={submitting}
         form={form}
+        showStatus
         onOpenChange={setEditOpen}
         onFormChange={setForm}
         onSubmit={onEdit}
@@ -382,6 +402,7 @@ function StudentFormDialog({
   open,
   submitting,
   form,
+  showStatus,
   onOpenChange,
   onFormChange,
   onSubmit,
@@ -391,6 +412,7 @@ function StudentFormDialog({
   open: boolean;
   submitting: boolean;
   form: StudentFormState;
+  showStatus: boolean;
   onOpenChange: (open: boolean) => void;
   onFormChange: (next: StudentFormState) => void;
   onSubmit: () => void;
@@ -403,15 +425,9 @@ function StudentFormDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 py-2">
-          <Input
-            placeholder="学员ID（source_student_id）"
-            value={form.sourceStudentId}
-            disabled={title === "编辑学员"}
-            onChange={(e) => onFormChange({ ...form, sourceStudentId: e.target.value })}
-          />
           <Input placeholder="姓名" value={form.name} onChange={(e) => onFormChange({ ...form, name: e.target.value })} />
           <Input placeholder="手机号" value={form.phone} onChange={(e) => onFormChange({ ...form, phone: e.target.value })} />
-          <Input type="date" value={form.birthday} onChange={(e) => onFormChange({ ...form, birthday: e.target.value })} />
+          <Input placeholder="出生日期（如 2016年12月01日 或 2016-12-01）" value={form.birthday} onChange={(e) => onFormChange({ ...form, birthday: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
             <Select value={form.gender} onValueChange={(value: "男" | "女") => onFormChange({ ...form, gender: value })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -420,14 +436,18 @@ function StudentFormDialog({
                 <SelectItem value="女">女</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={form.status} onValueChange={(value: "在读" | "停课" | "结课") => onFormChange({ ...form, status: value })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="在读">在读</SelectItem>
-                <SelectItem value="停课">停课</SelectItem>
-                <SelectItem value="结课">结课</SelectItem>
-              </SelectContent>
-            </Select>
+            {showStatus ? (
+              <Select value={form.status} onValueChange={(value: "在读" | "停课" | "结课") => onFormChange({ ...form, status: value })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="在读">在读</SelectItem>
+                  <SelectItem value="停课">停课</SelectItem>
+                  <SelectItem value="结课">结课</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex items-center rounded-md border px-3 text-sm text-muted-foreground">默认状态：在读</div>
+            )}
           </div>
         </div>
         <DialogFooter>

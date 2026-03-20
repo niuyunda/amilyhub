@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { PageHeader } from "@/components/common/page-header";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
@@ -45,10 +46,31 @@ type ProfileData = {
     rollcall_time: string;
     status: string;
   }>;
+  payments: Array<{
+    source_id: string;
+    source_order_id: string;
+    item_type: string;
+    direction: string;
+    amount_cents: number;
+    operation_date: string;
+    source_created_at: string;
+  }>;
 };
 
-const TABS = ["基本信息", "报读情况", "消课记录", "上课记录"] as const;
+const TABS = ["基本信息", "报读课程", "消费记录", "消课记录", "上课记录"] as const;
 type TabKey = (typeof TABS)[number];
+
+function toYuan(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function formatDateCn(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}年${pad(d.getMonth() + 1)}月${pad(d.getDate())}日`;
+}
 
 export default function StudentDetailPage() {
   const params = useParams<{ studentId: string }>();
@@ -85,7 +107,7 @@ export default function StudentDetailPage() {
     });
   }, [studentId]);
 
-  const summary = useMemo(() => {
+  const orderSummary = useMemo(() => {
     const paidYuan = orders.reduce((sum, o) => sum + o.paidYuan, 0);
     const receivableYuan = orders.reduce((sum, o) => sum + o.receivableYuan, 0);
     return { paidYuan, receivableYuan, arrearsYuan: Math.max(receivableYuan - paidYuan, 0) };
@@ -97,9 +119,15 @@ export default function StudentDetailPage() {
         title="学员详情"
         description={`学员ID：${studentId}`}
         actions={
-          <Link href="/students">
-            <Button variant="outline">返回学员列表</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => toast.success("报名功能（下一步接入）")}>报名</Button>
+            <Button variant="outline" onClick={() => toast.success("试听功能（下一步接入）")}>试听</Button>
+            <Button variant="outline" onClick={() => toast.success("编辑资料功能（下一步接入）")}>编辑资料</Button>
+            <Button variant="outline" onClick={() => toast.success("更多操作（停课/结课/删除）即将接入")}>更多操作</Button>
+            <Link href="/students">
+              <Button variant="outline">返回学员列表</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -122,30 +150,40 @@ export default function StudentDetailPage() {
           {tab === "基本信息" ? (
             <Card>
               <CardHeader>
-                <CardTitle>{profile.student.name}</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  {profile.student.name}
+                  <Badge>{profile.student.status || "-"}</Badge>
+                </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2 text-sm md:grid-cols-2">
                 <DetailRow label="手机号" value={profile.student.phone || "-"} />
                 <DetailRow label="性别" value={profile.student.gender || "-"} />
-                <DetailRow label="出生日期" value={profile.student.birthday || "-"} />
-                <DetailRow label="状态" value={profile.student.status || "-"} />
-                <DetailRow label="创建时间" value={profile.student.source_created_at || "-"} />
+                <DetailRow label="出生日期" value={formatDateCn(profile.student.birthday)} />
+                <DetailRow label="创建时间" value={formatDateCn(profile.student.source_created_at)} />
                 <DetailRow label="累计订单" value={`${orders.length}`} />
+                <DetailRow label="累计消费记录" value={`${profile.payments?.length ?? 0}`} />
               </CardContent>
             </Card>
           ) : null}
 
-          {tab === "报读情况" ? (
+          {tab === "报读课程" ? (
             <div className="space-y-4">
               <section className="grid gap-3 md:grid-cols-3">
-                <MetricCard label="应收总额（元）" value={summary.receivableYuan.toFixed(2)} />
-                <MetricCard label="实收总额（元）" value={summary.paidYuan.toFixed(2)} />
-                <MetricCard label="欠费总额（元）" value={summary.arrearsYuan.toFixed(2)} />
+                <MetricCard label="应收总额（元）" value={orderSummary.receivableYuan.toFixed(2)} />
+                <MetricCard label="实收总额（元）" value={orderSummary.paidYuan.toFixed(2)} />
+                <MetricCard label="欠费总额（元）" value={orderSummary.arrearsYuan.toFixed(2)} />
               </section>
 
               <Card>
                 <CardHeader>
-                  <CardTitle>订单日志</CardTitle>
+                  <CardTitle className="flex flex-wrap items-center gap-2">
+                    报读课程 / 订单日志
+                    <Button size="sm" variant="outline" onClick={() => toast.success("续费功能（下一步接入）")}>续费</Button>
+                    <Button size="sm" variant="outline" onClick={() => toast.success("转课功能（下一步接入）")}>转课</Button>
+                    <Button size="sm" variant="outline" onClick={() => toast.success("退课功能（下一步接入）")}>退课</Button>
+                    <Button size="sm" variant="outline" onClick={() => toast.success("结课功能（下一步接入）")}>结课</Button>
+                    <Button size="sm" variant="outline" onClick={() => toast.success("选班调班功能（下一步接入）")}>选班调班</Button>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {orders.map((order) => (
@@ -165,15 +203,36 @@ export default function StudentDetailPage() {
             </div>
           ) : null}
 
+          {tab === "消费记录" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>消费记录（收支流水）</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {(profile.payments ?? []).map((item) => (
+                  <div key={`${item.source_id}-${item.source_order_id}-${item.source_created_at}`} className="rounded-lg border p-3">
+                    <p>
+                      {formatDateCn(item.operation_date)} · {item.item_type || "-"} · {item.direction || "-"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      金额：¥{toYuan(Number(item.amount_cents ?? 0))} ｜ 订单号：{item.source_order_id || "-"}
+                    </p>
+                  </div>
+                ))}
+                {!(profile.payments ?? []).length ? <p className="text-muted-foreground">暂无消费记录</p> : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
           {tab === "消课记录" ? (
             <Card>
               <CardHeader>
-                <CardTitle>消课记录</CardTitle>
+                <CardTitle>消课记录（课时扣减）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {profile.consumption.map((item) => (
                   <div key={item.source_id} className="rounded-lg border p-3">
-                    <p>{item.checked_at || "-"} · {item.course_name || "-"} · 消课 {item.consumed_lessons}</p>
+                    <p>{formatDateCn(item.checked_at)} · {item.course_name || "-"} · 消课 {item.consumed_lessons}</p>
                     <p className="text-muted-foreground">班级：{item.class_name || "-"} ｜ 老师：{item.teacher_names || "-"}</p>
                   </div>
                 ))}
@@ -185,12 +244,12 @@ export default function StudentDetailPage() {
           {tab === "上课记录" ? (
             <Card>
               <CardHeader>
-                <CardTitle>上课记录</CardTitle>
+                <CardTitle>上课记录（考勤打卡）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {profile.rollcalls.map((item) => (
                   <div key={item.source_row_hash} className="rounded-lg border p-3">
-                    <p>{item.rollcall_time || "-"} · {item.class_name || "-"} · {item.course_name || "-"}</p>
+                    <p>{formatDateCn(item.rollcall_time)} · {item.class_name || "-"} · {item.course_name || "-"}</p>
                     <p className="text-muted-foreground">老师：{item.teacher_name || "-"} ｜ 状态：{item.status || "-"}</p>
                   </div>
                 ))}

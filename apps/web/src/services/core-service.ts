@@ -256,7 +256,7 @@ export async function getStudentProfile(studentId: string): Promise<ServiceResul
 }
 
 export async function createStudent(input: {
-  sourceStudentId: string;
+  sourceStudentId?: string;
   name: string;
   phone?: string;
   gender?: "男" | "女";
