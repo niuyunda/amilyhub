@@ -1,10 +1,16 @@
-from typing import Any, Literal
+import json
+from datetime import date
+from decimal import Decimal
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .db import fetch_one, fetch_rows
+from .db import fetch_one, fetch_rows, get_conn
+
 
 app = FastAPI(title="AmilyHub API", version="v1")
 app.add_middleware(
@@ -16,9 +22,23 @@ app.add_middleware(
 )
 
 
-class ErrorResponse(BaseModel):
+class ErrorInfo(BaseModel):
     code: str
     message: str
+    details: dict[str, Any] | None = None
+
+
+class ErrorResponse(BaseModel):
+    ok: bool = False
+    error: ErrorInfo
+
+
+class ApiError(Exception):
+    def __init__(self, status_code: int, code: str, message: str, details: dict[str, Any] | None = None):
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.details = details
 
 
 class PageMeta(BaseModel):
@@ -38,13 +58,39 @@ class ObjectResponse(BaseModel):
     data: dict[str, Any]
 
 
+class StudentUpsertRequest(BaseModel):
+    source_student_id: str = Field(min_length=1)
+    name: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+    birthday: date | None = None
+    status: str | None = None
+
+
+class OrderUpsertRequest(BaseModel):
+    source_order_id: str = Field(min_length=1)
+    source_student_id: str | None = None
+    order_type: str | None = None
+    order_state: str | None = None
+    receivable_cents: int | None = None
+    received_cents: int | None = None
+    arrears_cents: int | None = None
+
+
 class DashboardSummary(BaseModel):
     students: int
+    active_students: int
     teachers: int
     orders: int
     hour_cost_flows: int
+    rollcalls: int
+    income_expense: int
     income_cents: int
     expense_cents: int
+    net_income_cents: int
+    receivable_cents: int
+    received_cents: int
+    arrears_cents: int
 
 
 class DashboardSummaryResponse(BaseModel):
@@ -52,8 +98,20 @@ class DashboardSummaryResponse(BaseModel):
     data: DashboardSummary
 
 
+class IncomeExpenseSummary(BaseModel):
+    total_count: int
+    income_cents: int
+    expense_cents: int
+    net_income_cents: int
+
+
+class IncomeExpenseSummaryResponse(BaseModel):
+    ok: bool = True
+    data: IncomeExpenseSummary
+
+
 class IntegrityIssue(BaseModel):
-    kind: Literal["null", "duplicate", "orphan"]
+    kind: str
     table: str
     field: str | None = None
     value: str | None = None
@@ -66,17 +124,49 @@ class IntegrityCheckResponse(BaseModel):
     data: dict[str, Any]
 
 
+@app.exception_handler(ApiError)
+def api_error_handler(_: Request, exc: ApiError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(error=ErrorInfo(code=exc.code, message=exc.message, details=exc.details)).model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def validation_error_handler(_: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content=ErrorResponse(
+            error=ErrorInfo(code="VALIDATION_ERROR", message="invalid request", details={"errors": exc.errors()})
+        ).model_dump(),
+    )
+
+
 def pager(page: int, page_size: int):
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
     return page, page_size, (page - 1) * page_size
 
 
+def as_int(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, Decimal):
+        return int(value)
+    return int(value)
+
+
+def assert_student_exists(source_student_id: str):
+    row = fetch_one("select 1 as ok from amilyhub.students where source_student_id=%s", (source_student_id,))
+    if not row:
+        raise ApiError(422, "STUDENT_NOT_FOUND", "student not found for provided source_student_id")
+
+
 def list_query(
     table: str,
     cols: str,
     clauses: list[str],
-    params: list,
+    params: list[Any],
     page: int,
     page_size: int,
     order_by: str = "id desc",
@@ -109,25 +199,48 @@ def health():
 
 @app.get("/api/v1/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary():
-    students = fetch_one("select count(*) as c from amilyhub.students")["c"]
-    teachers = fetch_one("select count(*) as c from amilyhub.teachers")["c"]
-    orders = fetch_one("select count(*) as c from amilyhub.orders")["c"]
-    hcf = fetch_one("select count(*) as c from amilyhub.hour_cost_flows")["c"]
-    income = fetch_one(
-        "select coalesce(sum(case when direction in ('收入','INCOME','IN') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
-    )["s"]
-    expense = fetch_one(
-        "select coalesce(sum(case when direction in ('支出','EXPENSE','OUT') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
-    )["s"]
+    students = as_int(fetch_one("select count(*) as c from amilyhub.students")["c"])
+    active_students = as_int(fetch_one("select count(*) as c from amilyhub.students where status in ('active','ACTIVE','在读')")["c"])
+    teachers = as_int(fetch_one("select count(*) as c from amilyhub.teachers")["c"])
+    orders = as_int(fetch_one("select count(*) as c from amilyhub.orders")["c"])
+    hcf = as_int(fetch_one("select count(*) as c from amilyhub.hour_cost_flows")["c"])
+    rollcalls = as_int(fetch_one("select count(*) as c from amilyhub.rollcalls")["c"])
+    income_expense = as_int(fetch_one("select count(*) as c from amilyhub.income_expense")["c"])
+    income = as_int(
+        fetch_one(
+            "select coalesce(sum(case when direction in ('收入','INCOME','IN') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
+        )["s"]
+    )
+    expense = as_int(
+        fetch_one(
+            "select coalesce(sum(case when direction in ('支出','EXPENSE','OUT') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
+        )["s"]
+    )
+    order_money = fetch_one(
+        """
+        select
+          coalesce(sum(receivable_cents), 0) as receivable,
+          coalesce(sum(received_cents), 0) as received,
+          coalesce(sum(arrears_cents), 0) as arrears
+        from amilyhub.orders
+        """
+    )
     return {
         "ok": True,
         "data": {
             "students": students,
+            "active_students": active_students,
             "teachers": teachers,
             "orders": orders,
             "hour_cost_flows": hcf,
-            "income_cents": int(income or 0),
-            "expense_cents": int(expense or 0),
+            "rollcalls": rollcalls,
+            "income_expense": income_expense,
+            "income_cents": income,
+            "expense_cents": expense,
+            "net_income_cents": income - expense,
+            "receivable_cents": as_int(order_money["receivable"]),
+            "received_cents": as_int(order_money["received"]),
+            "arrears_cents": as_int(order_money["arrears"]),
         },
     }
 
@@ -163,8 +276,67 @@ def get_student(source_student_id: str):
         (source_student_id,),
     )
     if not row:
-        raise HTTPException(status_code=404, detail={"code": "STUDENT_NOT_FOUND", "message": "student not found"})
+        raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
     return {"ok": True, "data": row}
+
+
+@app.post("/api/v1/students", response_model=ObjectResponse, status_code=201)
+def create_student(payload: StudentUpsertRequest):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.students where source_student_id=%s", (payload.source_student_id,))
+            if cur.fetchone():
+                raise ApiError(409, "STUDENT_EXISTS", "student already exists")
+            cur.execute(
+                """
+                insert into amilyhub.students
+                (source_student_id, name, phone, gender, birthday, status, raw_json)
+                values (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
+                """,
+                (
+                    payload.source_student_id,
+                    payload.name,
+                    payload.phone,
+                    payload.gender,
+                    payload.birthday,
+                    payload.status,
+                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.put("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
+def update_student(source_student_id: str, payload: StudentUpsertRequest):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.students
+                set name=%s, phone=%s, gender=%s, birthday=%s, status=%s, raw_json=%s::jsonb
+                where source_student_id=%s
+                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
+                """,
+                (
+                    payload.name,
+                    payload.phone,
+                    payload.gender,
+                    payload.birthday,
+                    payload.status,
+                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
+                    source_student_id,
+                ),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
 
 
 @app.get("/api/v1/teachers", response_model=ListResponse)
@@ -218,14 +390,91 @@ def get_order(source_order_id: str):
         (source_order_id,),
     )
     if not row:
-        raise HTTPException(status_code=404, detail={"code": "ORDER_NOT_FOUND", "message": "order not found"})
+        raise ApiError(404, "ORDER_NOT_FOUND", "order not found")
     return {"ok": True, "data": row}
+
+
+@app.post("/api/v1/orders", response_model=ObjectResponse, status_code=201)
+def create_order(payload: OrderUpsertRequest):
+    if payload.source_student_id:
+        assert_student_exists(payload.source_student_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.orders where source_order_id=%s", (payload.source_order_id,))
+            if cur.fetchone():
+                raise ApiError(409, "ORDER_EXISTS", "order already exists")
+            cur.execute(
+                """
+                insert into amilyhub.orders
+                (source_order_id, source_student_id, order_type, order_state, receivable_cents, received_cents, arrears_cents, raw_json)
+                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    payload.source_order_id,
+                    payload.source_student_id,
+                    payload.order_type,
+                    payload.order_state,
+                    payload.receivable_cents,
+                    payload.received_cents,
+                    payload.arrears_cents,
+                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.put("/api/v1/orders/{source_order_id}", response_model=ObjectResponse)
+def update_order(source_order_id: str, payload: OrderUpsertRequest):
+    if payload.source_student_id:
+        assert_student_exists(payload.source_student_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.orders
+                set source_student_id=%s,
+                    order_type=%s,
+                    order_state=%s,
+                    receivable_cents=%s,
+                    received_cents=%s,
+                    arrears_cents=%s,
+                    raw_json=%s
+                where source_order_id=%s
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    payload.source_student_id,
+                    payload.order_type,
+                    payload.order_state,
+                    payload.receivable_cents,
+                    payload.received_cents,
+                    payload.arrears_cents,
+                    json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, default=str),
+                    source_order_id,
+                ),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "ORDER_NOT_FOUND", "order not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
 
 
 @app.get("/api/v1/hour-cost-flows", response_model=ListResponse)
 def list_hour_cost_flows(
     student_id: str | None = Query(default=None),
     teacher_id: str | None = Query(default=None),
+    cost_type: str | None = Query(default=None),
+    source_type: str | None = Query(default=None),
+    checked_from: date | None = Query(default=None),
+    checked_to: date | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=50),
 ):
@@ -236,6 +485,18 @@ def list_hour_cost_flows(
     if teacher_id:
         clauses.append("source_teacher_id = %s")
         params.append(teacher_id)
+    if cost_type:
+        clauses.append("cost_type = %s")
+        params.append(cost_type)
+    if source_type:
+        clauses.append("source_type = %s")
+        params.append(source_type)
+    if checked_from:
+        clauses.append("checked_at::date >= %s")
+        params.append(checked_from)
+    if checked_to:
+        clauses.append("checked_at::date <= %s")
+        params.append(checked_to)
     return list_query(
         "hour_cost_flows",
         "id, source_id, source_student_id, source_teacher_id, source_class_id, source_course_id, cost_type, source_type, cost_hours, cost_amount_cents, checked_at, source_created_at",
@@ -249,6 +510,9 @@ def list_hour_cost_flows(
 @app.get("/api/v1/income-expense", response_model=ListResponse)
 def list_income_expense(
     direction: str | None = Query(default=None),
+    item_type: str | None = Query(default=None),
+    operation_date_from: date | None = Query(default=None),
+    operation_date_to: date | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=50),
 ):
@@ -256,6 +520,15 @@ def list_income_expense(
     if direction:
         clauses.append("direction = %s")
         params.append(direction)
+    if item_type:
+        clauses.append("item_type = %s")
+        params.append(item_type)
+    if operation_date_from:
+        clauses.append("operation_date >= %s")
+        params.append(operation_date_from)
+    if operation_date_to:
+        clauses.append("operation_date <= %s")
+        params.append(operation_date_to)
     return list_query(
         "income_expense",
         "id, source_id, source_order_id, item_type, direction, amount_cents, operation_date, source_created_at",
@@ -266,9 +539,53 @@ def list_income_expense(
     )
 
 
+@app.get("/api/v1/income-expense/summary", response_model=IncomeExpenseSummaryResponse)
+def income_expense_summary(
+    direction: str | None = Query(default=None),
+    operation_date_from: date | None = Query(default=None),
+    operation_date_to: date | None = Query(default=None),
+):
+    clauses, params = [], []
+    if direction:
+        clauses.append("direction = %s")
+        params.append(direction)
+    if operation_date_from:
+        clauses.append("operation_date >= %s")
+        params.append(operation_date_from)
+    if operation_date_to:
+        clauses.append("operation_date <= %s")
+        params.append(operation_date_to)
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+    row = fetch_one(
+        f"""
+        select
+          count(*) as total_count,
+          coalesce(sum(case when direction in ('收入','INCOME','IN') then amount_cents else 0 end),0) as income_cents,
+          coalesce(sum(case when direction in ('支出','EXPENSE','OUT') then amount_cents else 0 end),0) as expense_cents
+        from amilyhub.income_expense
+        {cond}
+        """,
+        tuple(params),
+    )
+    income_cents = as_int(row["income_cents"])
+    expense_cents = as_int(row["expense_cents"])
+    return {
+        "ok": True,
+        "data": {
+            "total_count": as_int(row["total_count"]),
+            "income_cents": income_cents,
+            "expense_cents": expense_cents,
+            "net_income_cents": income_cents - expense_cents,
+        },
+    }
+
+
 @app.get("/api/v1/rollcalls", response_model=ListResponse)
 def list_rollcalls(
     q: str | None = Query(default=None),
+    student_name: str | None = Query(default=None),
+    teacher_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=50),
 ):
@@ -276,6 +593,15 @@ def list_rollcalls(
     if q:
         clauses.append("(student_name ilike %s or teacher_name ilike %s or class_name ilike %s)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if student_name:
+        clauses.append("student_name ilike %s")
+        params.append(f"%{student_name}%")
+    if teacher_name:
+        clauses.append("teacher_name ilike %s")
+        params.append(f"%{teacher_name}%")
+    if status:
+        clauses.append("status = %s")
+        params.append(status)
     return list_query(
         "rollcalls",
         "id, source_row_hash, student_name, class_name, course_name, teacher_name, rollcall_time, class_time_range, status, cost_amount_cents",
