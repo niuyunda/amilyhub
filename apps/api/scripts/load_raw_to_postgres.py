@@ -1,6 +1,7 @@
 import os, json, hashlib
 from pathlib import Path
 from decimal import Decimal
+from datetime import datetime, timezone
 import psycopg
 import pandas as pd
 
@@ -13,6 +14,23 @@ def cents(v):
     if v in (None, ''): return None
     try: return int(Decimal(str(v)) * 100)
     except: return None
+
+def to_date(v):
+    if v in (None, ''):
+        return None
+    try:
+        if isinstance(v, (int, float)):
+            # assume epoch ms when large
+            ts = float(v)
+            if ts > 1e12:
+                ts = ts / 1000.0
+            return datetime.fromtimestamp(ts, tz=timezone.utc).date()
+        s = str(v)
+        if len(s) >= 10:
+            return datetime.fromisoformat(s[:10]).date()
+    except:
+        return None
+    return None
 
 def pick(d, *keys):
     for k in keys:
@@ -43,11 +61,14 @@ def run():
     # students
     n=0
     for r in load_jsonl(ROOT/'students_learning.jsonl'):
-        sid = str(pick(r,'studentId','id'))
-        if not sid: continue
-        cur.execute('''insert into amilyhub.students(source_student_id,name,phone,gender,birthday,status,raw_json)
-                       values(%s,%s,%s,%s,%s,%s,%s) on conflict (source_student_id) do update set raw_json=excluded.raw_json''',
-                    (sid, pick(r,'name','studentName'), pick(r,'phone','mobile'), pick(r,'gender'), pick(r,'birthday'), pick(r,'status'), json.dumps(r,ensure_ascii=False)))
+        sb = r.get('studentBasicVO') or {}
+        sidv = pick(sb,'studentId') or pick(r,'studentId','id')
+        if not sidv:
+            continue
+        sid = str(sidv)
+        cur.execute('''insert into amilyhub.students(source_student_id,name,phone,gender,birthday,status,source_created_at,raw_json)
+                       values(%s,%s,%s,%s,%s,%s,%s,%s) on conflict (source_student_id) do update set raw_json=excluded.raw_json''',
+                    (sid, pick(sb,'name', 'studentName') or pick(r,'name'), pick(sb,'phone','mobile') or pick(r,'phone'), pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','students',%s,'ok')", (n,))
 
@@ -69,7 +90,7 @@ def run():
         if not rid: continue
         cur.execute('''insert into amilyhub.income_expense(source_id,source_order_id,item_type,direction,amount_cents,operation_date,raw_json)
                        values(%s,%s,%s,%s,%s,%s,%s) on conflict (source_id) do update set raw_json=excluded.raw_json''',
-                    (rid, pick(r,'businessNo','orderNo'), pick(r,'itemName','bizType'), pick(r,'type','direction'), cents(pick(r,'amount','money')), pick(r,'operationDate'), json.dumps(r,ensure_ascii=False)))
+                    (rid, pick(r,'businessNo','orderNo'), pick(r,'itemName','bizType'), pick(r,'type','direction'), cents(pick(r,'amount','money')), to_date(pick(r,'operationDate')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','income_expense',%s,'ok')", (n,))
 

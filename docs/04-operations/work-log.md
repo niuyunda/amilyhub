@@ -47,3 +47,8 @@
   - `docs/03-delivery/backend-api-design-v1.md`
   - `docs/03-delivery/frontend-page-plan-v1.md`
 - Connection check performed from WSL: port `55432` is reachable but current known credential set did not authenticate; import script is ready and requires valid `DATABASE_URL` runtime.
+- User requested local PostgreSQL via Docker Compose with non-git secret management.
+- Refactored compose to env-driven config and added `.env.example`; created local `infra/.env` (gitignored).
+- Added runbook: `docs/runbooks/postgres-docker-setup.md`.
+- Brought up Postgres container on port 55432 and successfully imported exported data via `load_raw_to_postgres.py`.
+- Added DB import result doc with final row counts: `docs/03-delivery/db-import-result-2026-03-20.md`.
