@@ -59,6 +59,7 @@ export interface ClassRoom {
   campus: string;
   studentCount: number;
   capacity: number;
+  classType: "班课" | "一对一";
   status: "开班中" | "已结班";
 }
 

@@ -879,6 +879,7 @@ def list_classes(
     q: str | None = Query(default=None),
     teacher_name: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    class_type: str | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
@@ -893,6 +894,9 @@ def list_classes(
     if status:
         clauses.append("status = %s")
         params.append(status)
+    if class_type:
+        clauses.append("class_type = %s")
+        params.append(class_type)
 
     cond = f" where {' and '.join(clauses)} " if clauses else ""
 
@@ -915,6 +919,7 @@ def list_classes(
             max(course_name) as course_name,
             max(teacher_name) as teacher_name,
             max(total_number) as student_count,
+            case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
             case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
           from base
           group by class_id
@@ -943,6 +948,7 @@ def list_classes(
             max(course_name) as course_name,
             max(teacher_name) as teacher_name,
             max(total_number) as student_count,
+            case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
             case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
           from base
           group by class_id
@@ -952,6 +958,7 @@ def list_classes(
           class_name as name,
           course_name,
           teacher_name,
+          class_type,
           '-'::text as campus,
           student_count,
           greatest(student_count, 1) as capacity,
@@ -964,6 +971,102 @@ def list_classes(
         tuple(params + [page_size, offset]),
     )
     return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total_row or {}).get('c', 0) or 0)}}
+
+
+@app.get("/api/v1/classes/{class_id}/profile", response_model=ObjectResponse)
+def get_class_profile(class_id: str):
+    class_info = fetch_one(
+        """
+        with base as (
+          select
+            coalesce(raw_json->>'classId','') as class_id,
+            coalesce(class_name,'-') as class_name,
+            coalesce(course_name,'-') as course_name,
+            coalesce(teacher_name,'-') as teacher_name,
+            coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
+            coalesce((raw_json->>'totalNumber')::int, 0) as total_number,
+            rollcall_time
+          from amilyhub.rollcalls
+          where coalesce(raw_json->>'classId','')=%s
+        )
+        select
+          class_id as id,
+          max(class_name) as name,
+          max(course_name) as course_name,
+          max(teacher_name) as teacher_name,
+          case when max(class_name) like '%一对一%' then '一对一' else '班课' end as class_type,
+          max(total_number) as student_count,
+          max(total_number) as capacity,
+          case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status,
+          max(rollcall_time) as latest_rollcall_time
+        from base
+        group by class_id
+        """,
+        (class_id,),
+    )
+    if not class_info:
+        raise ApiError(404, "CLASS_NOT_FOUND", "class not found")
+
+    schedules = fetch_rows(
+        """
+        select
+          source_row_hash as id,
+          class_time_range,
+          rollcall_time,
+          teacher_name,
+          status
+        from amilyhub.rollcalls
+        where coalesce(raw_json->>'classId','')=%s
+        order by rollcall_time desc nulls last, id desc
+        limit 50
+        """,
+        (class_id,),
+    )
+
+    students = fetch_rows(
+        """
+        with s as (
+          select
+            coalesce(raw_json->>'studentId','') as student_id,
+            max(student_name) as student_name,
+            max(status) as latest_status,
+            max(rollcall_time) as latest_time,
+            count(*) as class_count
+          from amilyhub.rollcalls
+          where coalesce(raw_json->>'classId','')=%s
+            and coalesce(raw_json->>'studentId','') <> ''
+          group by coalesce(raw_json->>'studentId','')
+        )
+        select
+          student_id,
+          student_name,
+          latest_status,
+          latest_time,
+          class_count
+        from s
+        order by latest_time desc nulls last
+        """,
+        (class_id,),
+    )
+
+    attendance = fetch_rows(
+        """
+        select
+          source_row_hash as id,
+          student_name,
+          teacher_name,
+          rollcall_time,
+          status,
+          class_time_range
+        from amilyhub.rollcalls
+        where coalesce(raw_json->>'classId','')=%s
+        order by rollcall_time desc nulls last, id desc
+        limit 100
+        """,
+        (class_id,),
+    )
+
+    return {"ok": True, "data": {"class": class_info, "schedules": schedules, "students": students, "attendance": attendance}}
 
 
 @app.get("/api/v1/rollcalls", response_model=ListResponse)

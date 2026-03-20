@@ -25,6 +25,7 @@ export interface TeacherQuery extends ListQuery {
 export interface ClassQuery extends ListQuery {
   status?: "开班中" | "已结班";
   teacherName?: string;
+  classType?: "班课" | "一对一";
 }
 
 export interface OrderQuery extends ListQuery {

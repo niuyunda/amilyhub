@@ -185,6 +185,7 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
       q: query.keyword,
       teacher_name: query.teacherName,
       status: query.status,
+      class_type: query.classType,
       page: query.page,
       page_size: query.pageSize,
     });
@@ -197,12 +198,23 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
         campus: x.campus ?? "-",
         studentCount: Number(x.student_count ?? 0),
         capacity: Number(x.capacity ?? 0),
+        classType: x.class_type === "一对一" ? "一对一" : "班课",
         status: x.status === "已结班" ? "已结班" : "开班中",
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
       total: r.page.total,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getClassProfile(classId: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await getJson<ApiObj<any>>(`/classes/${encodeURIComponent(classId)}/profile`);
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;
