@@ -400,19 +400,7 @@ def get_student_profile(source_student_id: str):
           select
             coalesce(raw_json->>'businessNo', '') as business_no,
             coalesce(sum(coalesce((raw_json->>'checkedPurchaseLessons')::numeric, 0)), 0) as consumed_purchase,
-            coalesce(sum(coalesce((raw_json->>'checkedGiftLessons')::numeric, 0)), 0) as consumed_gift,
-            coalesce(
-              (
-                array_agg(coalesce((raw_json->>'remainPurchaseLessons')::numeric, 0) order by checked_at desc nulls last, id desc)
-              )[1],
-              0
-            ) as remain_purchase,
-            coalesce(
-              (
-                array_agg(coalesce((raw_json->>'remainGiftLessons')::numeric, 0) order by checked_at desc nulls last, id desc)
-              )[1],
-              0
-            ) as remain_gift
+            coalesce(sum(coalesce((raw_json->>'checkedGiftLessons')::numeric, 0)), 0) as consumed_gift
           from amilyhub.hour_cost_flows
           where source_student_id=%s and coalesce(raw_json->>'businessNo', '') <> ''
           group by coalesce(raw_json->>'businessNo', '')
@@ -424,16 +412,49 @@ def get_student_profile(source_student_id: str):
           coalesce(o.received_cents, 0) as paid_cents,
           coalesce(o.receivable_cents, 0) as receivable_cents,
           o.source_created_at,
-          (coalesce(h.consumed_purchase, 0) + coalesce(h.remain_purchase, 0))::numeric as purchased_lessons,
-          (coalesce(h.consumed_gift, 0) + coalesce(h.remain_gift, 0))::numeric as gift_lessons,
+          (
+            case
+              when coalesce(o.received_cents, 0) = 0 and position('送' in coalesce(pi->>'itemsInfo', '')) > 0 then 0
+              else coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0)
+            end
+          )::numeric as purchased_lessons,
+          (
+            case
+              when position('送一节' in coalesce(pi->>'itemsInfo', '')) > 0 then 1
+              when coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '送([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0) > 0
+                then coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '送([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0)
+              when coalesce(o.received_cents, 0) > 0 and position('48节课时包' in coalesce(pi->>'itemsInfo', '')) > 0 then 3
+              else 0
+            end
+          )::numeric as gift_lessons,
           (coalesce(h.consumed_purchase, 0) + coalesce(h.consumed_gift, 0))::numeric as consumed_lessons,
           0::numeric as transfer_lessons,
-          (coalesce(h.remain_purchase, 0) + coalesce(h.remain_gift, 0))::numeric as remain_lessons
+          greatest(
+            (
+              (
+                case
+                  when coalesce(o.received_cents, 0) = 0 and position('送' in coalesce(pi->>'itemsInfo', '')) > 0 then 0
+                  else coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0)
+                end
+              )
+              +
+              case
+                when position('送一节' in coalesce(pi->>'itemsInfo', '')) > 0 then 1
+                when coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '送([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0) > 0
+                  then coalesce((regexp_match(coalesce(pi->>'itemsInfo', ''), '送([0-9]+(?:\\.[0-9]+)?)节'))[1]::numeric, 0)
+                when coalesce(o.received_cents, 0) > 0 and position('48节课时包' in coalesce(pi->>'itemsInfo', '')) > 0 then 3
+                else 0
+              end
+              -
+              (coalesce(h.consumed_purchase, 0) + coalesce(h.consumed_gift, 0))
+            ),
+            0
+          )::numeric as remain_lessons
         from amilyhub.orders o
         left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems', '[]'::jsonb)) pi on true
         left join h on h.business_no = o.source_order_id
         where o.source_student_id=%s
-        order by o.id desc
+        order by o.source_order_id desc
         limit 50
         """,
         (source_student_id, source_student_id),

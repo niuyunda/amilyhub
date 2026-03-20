@@ -90,6 +90,7 @@ export default function StudentDetailPage() {
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [showAllCourses, setShowAllCourses] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -131,6 +132,11 @@ export default function StudentDetailPage() {
     };
   }, [orders, profile]);
 
+  const visibleCourses = useMemo(() => {
+    const rows = profile?.courses ?? [];
+    return showAllCourses ? rows : rows.slice(0, 2);
+  }, [profile, showAllCourses]);
+
   const paymentRows = useMemo(() => {
     const raw = profile?.payments ?? [];
     if (raw.length) return raw;
@@ -165,6 +171,7 @@ export default function StudentDetailPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{profile.student.phone || "-"} · {mapGender(profile.student.gender)} · 出生日期 {formatCnDateTime(profile.student.birthday)}</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => history.back()}>返回学员列表</Button>
                 <Button size="sm">报名</Button>
                 <Button size="sm" variant="outline">试听</Button>
                 <Button size="sm" variant="outline">编辑资料</Button>
@@ -209,7 +216,7 @@ export default function StudentDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(profile.courses ?? []).map((item, idx) => (
+                    {visibleCourses.map((item, idx) => (
                       <tr key={`${item.order_no}-${idx}`} className="border-t">
                         <Td>{item.order_no || "-"}</Td>
                         <Td>{item.course_name || "-"}</Td>
@@ -233,6 +240,13 @@ export default function StudentDetailPage() {
                 </table>
               </div>
               {!(profile.courses ?? []).length ? <div className="p-4 text-sm text-muted-foreground">暂无报读课程</div> : null}
+              {(profile.courses ?? []).length > 2 ? (
+                <div className="border-t px-4 py-3">
+                  <Button variant="outline" size="sm" onClick={() => setShowAllCourses((v) => !v)}>
+                    {showAllCourses ? "收起" : "展开全部"}
+                  </Button>
+                </div>
+              ) : null}
             </section>
           ) : null}
 
