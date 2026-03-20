@@ -4,7 +4,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import psycopg
 
-ROOT = Path(__file__).resolve().parents[1] / 'exports' / 'raw' / 'export_20260320_130436'
+ROOT = Path(os.getenv('EXPORT_ROOT') or (Path(__file__).resolve().parents[1] / 'exports' / 'raw' / 'export_20260320_130436'))
 DB = os.getenv('DATABASE_URL')
 if not DB:
     raise SystemExit('Set DATABASE_URL, e.g. postgresql://user:pass@localhost:55432/amilyhub')
