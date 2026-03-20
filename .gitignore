@@ -12,3 +12,7 @@ __pycache__/
 
 # Local runtime outputs
 apps/api/exports/
+
+apps/web/node_modules/
+apps/web/.next/
+apps/web/dist/

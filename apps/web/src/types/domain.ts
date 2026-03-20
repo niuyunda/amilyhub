@@ -1,0 +1,94 @@
+export type UserRole = "超级管理员" | "教务" | "财务" | "老师";
+
+export interface CurrentUser {
+  id: string;
+  name: string;
+  role: UserRole;
+}
+
+export interface DashboardKpi {
+  studentTotal: number;
+  activeStudents: number;
+  monthlyOrders: number;
+  monthlyIncomeYuan: number;
+  monthlyConsumedHours: number;
+}
+
+export interface TodoItem {
+  id: string;
+  title: string;
+  count: number;
+}
+
+export interface QuickAction {
+  id: string;
+  label: string;
+}
+
+export interface Student {
+  id: string;
+  name: string;
+  phone: string;
+  gender: "男" | "女";
+  status: "在读" | "停课" | "结课";
+  consultant: string;
+  latestClassAt: string;
+  remainHours: number;
+  className: string;
+}
+
+export interface Teacher {
+  id: string;
+  name: string;
+  phone: string;
+  subject: string;
+  status: "在职" | "停用";
+  classCount: number;
+  weeklyHours: number;
+}
+
+export interface ClassRoom {
+  id: string;
+  name: string;
+  courseName: string;
+  teacherName: string;
+  campus: string;
+  studentCount: number;
+  capacity: number;
+  status: "开班中" | "已结班";
+}
+
+export interface Order {
+  id: string;
+  orderNo: string;
+  studentName: string;
+  orderType: "报名" | "续费" | "退费";
+  status: "待支付" | "已支付" | "已作废";
+  receivableYuan: number;
+  paidYuan: number;
+  arrearsYuan: number;
+  createdAt: string;
+}
+
+export interface FinanceRecord {
+  id: string;
+  serialNo: string;
+  bizType: string;
+  direction: "收入" | "支出";
+  amountYuan: number;
+  paymentMethod: "微信" | "支付宝" | "现金" | "转账";
+  operator: string;
+  occurredAt: string;
+}
+
+export interface FinanceSummary {
+  totalIncomeYuan: number;
+  totalExpenseYuan: number;
+  netIncomeYuan: number;
+}
+
+export interface DashboardData {
+  kpi: DashboardKpi;
+  todos: TodoItem[];
+  quickActions: QuickAction[];
+}

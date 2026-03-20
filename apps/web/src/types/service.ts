@@ -1,0 +1,39 @@
+export interface PageRequest {
+  page: number;
+  pageSize: number;
+}
+
+export interface PageResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ListQuery extends PageRequest {
+  keyword?: string;
+}
+
+export interface StudentQuery extends ListQuery {
+  status?: "在读" | "停课" | "结课";
+}
+
+export interface TeacherQuery extends ListQuery {
+  status?: "在职" | "停用";
+}
+
+export interface ClassQuery extends ListQuery {
+  status?: "开班中" | "已结班";
+  teacherName?: string;
+}
+
+export interface OrderQuery extends ListQuery {
+  status?: "待支付" | "已支付" | "已作废";
+  orderType?: "报名" | "续费" | "退费";
+}
+
+export interface FinanceQuery extends ListQuery {
+  direction?: "收入" | "支出";
+}
+
+export type ServiceResult<T> = { kind: "ok"; data: T } | { kind: "forbidden"; message: string };

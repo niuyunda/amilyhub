@@ -1,0 +1,197 @@
+import type {
+  ClassRoom,
+  DashboardData,
+  FinanceRecord,
+  Order,
+  Student,
+  Teacher,
+} from "@/src/types/domain";
+
+export const dashboardData: DashboardData = {
+  kpi: {
+    studentTotal: 286,
+    activeStudents: 241,
+    monthlyOrders: 74,
+    monthlyIncomeYuan: 245320,
+    monthlyConsumedHours: 1188,
+  },
+  todos: [
+    { id: "todo-1", title: "待确认订单", count: 9 },
+    { id: "todo-2", title: "待点名课程", count: 6 },
+    { id: "todo-3", title: "课消异常待核对", count: 3 },
+  ],
+  quickActions: [
+    { id: "qa-1", label: "新增学员" },
+    { id: "qa-2", label: "创建班级" },
+    { id: "qa-3", label: "创建课表" },
+    { id: "qa-4", label: "录入订单" },
+  ],
+};
+
+export const students: Student[] = [
+  {
+    id: "stu-1",
+    name: "李明",
+    phone: "13800000001",
+    gender: "男",
+    status: "在读",
+    consultant: "王顾问",
+    latestClassAt: "2026-03-20 19:00",
+    remainHours: 42,
+    className: "初二数学提高班",
+  },
+  {
+    id: "stu-2",
+    name: "张悦",
+    phone: "13800000002",
+    gender: "女",
+    status: "停课",
+    consultant: "陈顾问",
+    latestClassAt: "2026-03-11 18:30",
+    remainHours: 16,
+    className: "高一英语强化班",
+  },
+  {
+    id: "stu-3",
+    name: "刘晨",
+    phone: "13800000003",
+    gender: "男",
+    status: "结课",
+    consultant: "王顾问",
+    latestClassAt: "2026-02-28 16:00",
+    remainHours: 0,
+    className: "小升初语文冲刺班",
+  },
+];
+
+export const teachers: Teacher[] = [
+  {
+    id: "tch-1",
+    name: "周老师",
+    phone: "13900000001",
+    subject: "数学",
+    status: "在职",
+    classCount: 4,
+    weeklyHours: 18,
+  },
+  {
+    id: "tch-2",
+    name: "林老师",
+    phone: "13900000002",
+    subject: "英语",
+    status: "在职",
+    classCount: 3,
+    weeklyHours: 14,
+  },
+  {
+    id: "tch-3",
+    name: "赵老师",
+    phone: "13900000003",
+    subject: "语文",
+    status: "停用",
+    classCount: 0,
+    weeklyHours: 0,
+  },
+];
+
+export const classes: ClassRoom[] = [
+  {
+    id: "cls-1",
+    name: "初二数学提高班",
+    courseName: "初中数学",
+    teacherName: "周老师",
+    campus: "总部校区",
+    studentCount: 28,
+    capacity: 32,
+    status: "开班中",
+  },
+  {
+    id: "cls-2",
+    name: "高一英语强化班",
+    courseName: "高中英语",
+    teacherName: "林老师",
+    campus: "南山校区",
+    studentCount: 18,
+    capacity: 24,
+    status: "开班中",
+  },
+  {
+    id: "cls-3",
+    name: "小升初语文冲刺班",
+    courseName: "小学语文",
+    teacherName: "赵老师",
+    campus: "总部校区",
+    studentCount: 0,
+    capacity: 30,
+    status: "已结班",
+  },
+];
+
+export const orders: Order[] = [
+  {
+    id: "ord-1",
+    orderNo: "ORD-202603-001",
+    studentName: "李明",
+    orderType: "报名",
+    status: "已支付",
+    receivableYuan: 8600,
+    paidYuan: 8600,
+    arrearsYuan: 0,
+    createdAt: "2026-03-01 09:30",
+  },
+  {
+    id: "ord-2",
+    orderNo: "ORD-202603-019",
+    studentName: "张悦",
+    orderType: "续费",
+    status: "待支付",
+    receivableYuan: 4800,
+    paidYuan: 2000,
+    arrearsYuan: 2800,
+    createdAt: "2026-03-14 15:20",
+  },
+  {
+    id: "ord-3",
+    orderNo: "ORD-202603-025",
+    studentName: "刘晨",
+    orderType: "退费",
+    status: "已作废",
+    receivableYuan: 1200,
+    paidYuan: 0,
+    arrearsYuan: 0,
+    createdAt: "2026-03-17 10:10",
+  },
+];
+
+export const financeRecords: FinanceRecord[] = [
+  {
+    id: "fin-1",
+    serialNo: "FIN-202603-1001",
+    bizType: "报名缴费",
+    direction: "收入",
+    amountYuan: 8600,
+    paymentMethod: "微信",
+    operator: "财务A",
+    occurredAt: "2026-03-01 09:35",
+  },
+  {
+    id: "fin-2",
+    serialNo: "FIN-202603-1015",
+    bizType: "场地租金",
+    direction: "支出",
+    amountYuan: 12000,
+    paymentMethod: "转账",
+    operator: "财务B",
+    occurredAt: "2026-03-08 13:00",
+  },
+  {
+    id: "fin-3",
+    serialNo: "FIN-202603-1028",
+    bizType: "续费收款",
+    direction: "收入",
+    amountYuan: 2000,
+    paymentMethod: "支付宝",
+    operator: "财务A",
+    occurredAt: "2026-03-14 15:30",
+  },
+];
