@@ -66,7 +66,7 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
   return res.json() as Promise<T>;
 }
 
-async function sendJson<T>(method: "POST" | "PUT" | "DELETE", path: string, body?: Record<string, unknown>): Promise<T> {
+async function sendJson<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -99,8 +99,15 @@ function mapStudentStatus(raw?: string): Student["status"] {
 }
 
 function mapTeacherStatus(raw?: string): Teacher["status"] {
-  if (raw === "在职" || raw === "ON" || raw === "NORMAL") return "在职";
+  if (raw === "在职" || raw === "启用" || raw === "ON" || raw === "NORMAL") return "在职";
   return "停用";
+}
+
+function mapPaymentMethod(raw?: string): FinanceRecord["paymentMethod"] {
+  if (raw === "微信") return "微信";
+  if (raw === "支付宝") return "支付宝";
+  if (raw === "现金") return "现金";
+  return "转账";
 }
 
 function mapOrderStatus(raw?: string): Order["status"] {
@@ -185,23 +192,81 @@ export async function getTeachers(query: TeacherQuery): Promise<ServiceResult<Pa
   try {
     const r = await getJson<ApiList<any>>("/teachers", {
       q: query.keyword,
+      status: query.status,
       page: query.page,
       page_size: query.pageSize,
     });
     return ok({
-      items: r.data.map((x) => ({
-        id: String(x.source_teacher_id ?? x.id),
-        name: x.name ?? "-",
-        phone: x.phone ?? "-",
-        subject: "-",
-        status: mapTeacherStatus(x.status),
-        classCount: Number(x.current_month_lessons ?? 0),
-        weeklyHours: Number(x.last_month_lessons ?? 0),
-      })),
+      items: r.data.map((x) => {
+        const subjects = Array.isArray(x.subjects) ? x.subjects.map((v: unknown) => String(v)).filter(Boolean) : [];
+        return {
+          id: String(x.source_teacher_id ?? x.id),
+          name: x.name ?? "-",
+          phone: x.phone ?? "-",
+          subjects,
+          subject: subjects.length > 0 ? subjects.join(" / ") : "-",
+          status: mapTeacherStatus(x.status),
+          classCount: Number(x.current_month_lessons ?? 0),
+          weeklyHours: Number(x.last_month_lessons ?? 0),
+          actions: "",
+        };
+      }),
       page: r.page.page,
       pageSize: r.page.page_size,
       total: r.page.total,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createTeacher(input: {
+  sourceTeacherId?: string;
+  name: string;
+  phone?: string;
+  subjects: string[];
+  status: "在职" | "停用";
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/teachers", {
+      source_teacher_id: input.sourceTeacherId,
+      name: input.name,
+      phone: input.phone,
+      subjects: input.subjects,
+      status: input.status,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function updateTeacher(teacherId: string, input: {
+  name?: string;
+  phone?: string;
+  subjects?: string[];
+  status?: "在职" | "停用";
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/teachers/${encodeURIComponent(teacherId)}`, {
+      name: input.name,
+      phone: input.phone,
+      subjects: input.subjects,
+      status: input.status,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function updateTeacherStatus(teacherId: string, status: "在职" | "停用"): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PATCH", `/teachers/${encodeURIComponent(teacherId)}/status`, { status });
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;
@@ -620,13 +685,16 @@ export async function getFinanceRecords(
       list: {
         items: list.data.map((x) => ({
           id: String(x.id),
-          serialNo: String(x.source_id ?? "-"),
+          serialNo: String(x.source_record_id ?? x.source_id ?? "-"),
           bizType: x.item_type ?? "-",
           direction: x.direction === "支出" || x.direction === "EXPENSE" ? "支出" : "收入",
           amountYuan: toYuan(x.amount_cents),
-          paymentMethod: "转账",
-          operator: "-",
+          paymentMethod: mapPaymentMethod(x.payment_method),
+          operator: x.operator ?? "-",
+          remark: x.remark ?? "",
+          status: x.status === "作废" ? "作废" : "正常",
           occurredAt: x.operation_date ? String(x.operation_date) : "-",
+          actions: "",
         })),
         page: list.page.page,
         pageSize: list.page.page_size,
@@ -638,6 +706,77 @@ export async function getFinanceRecords(
         netIncomeYuan: toYuan(summary.data.net_income_cents),
       },
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createFinanceRecord(input: {
+  sourceRecordId?: string;
+  itemType: string;
+  direction: "收入" | "支出";
+  amountCents: number;
+  operationDate: string;
+  paymentMethod: FinanceRecord["paymentMethod"];
+  operator: string;
+  remark?: string;
+  status: "正常" | "作废";
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/income-expense", {
+      source_record_id: input.sourceRecordId,
+      item_type: input.itemType,
+      direction: input.direction,
+      amount_cents: input.amountCents,
+      operation_date: input.operationDate,
+      payment_method: input.paymentMethod,
+      operator: input.operator,
+      remark: input.remark,
+      status: input.status,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function updateFinanceRecord(sourceRecordId: string, input: {
+  itemType?: string;
+  direction?: "收入" | "支出";
+  amountCents?: number;
+  operationDate?: string;
+  paymentMethod?: FinanceRecord["paymentMethod"];
+  operator?: string;
+  remark?: string;
+  status?: "正常" | "作废";
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/income-expense/${encodeURIComponent(sourceRecordId)}`, {
+      item_type: input.itemType,
+      direction: input.direction,
+      amount_cents: input.amountCents,
+      operation_date: input.operationDate,
+      payment_method: input.paymentMethod,
+      operator: input.operator,
+      remark: input.remark,
+      status: input.status,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function voidFinanceRecord(sourceRecordId: string, input?: { operator?: string; reason?: string }): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", `/income-expense/${encodeURIComponent(sourceRecordId)}/void`, {
+      operator: input?.operator,
+      reason: input?.reason,
+    });
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;

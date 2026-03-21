@@ -45,10 +45,12 @@ export interface Teacher {
   id: string;
   name: string;
   phone: string;
+  subjects: string[];
   subject: string;
   status: "在职" | "停用";
   classCount: number;
   weeklyHours: number;
+  actions: string;
 }
 
 export interface ClassRoom {
@@ -94,7 +96,10 @@ export interface FinanceRecord {
   amountYuan: number;
   paymentMethod: "微信" | "支付宝" | "现金" | "转账";
   operator: string;
+  remark: string;
+  status: "正常" | "作废";
   occurredAt: string;
+  actions: string;
 }
 
 export interface FinanceSummary {

@@ -358,3 +358,112 @@ def test_rollcall_confirm_leave_absent_revoke_are_consistent():
 
     flow_after_revoke = fetch_one("select source_id from amilyhub.hour_cost_flows where source_id=%s", (flow_source_id,))
     assert flow_after_revoke is None
+
+
+def test_teacher_crud_and_status_happy_path():
+    tid = _uid('tch')
+    name = f'Teacher CRUD {tid}'
+    create = client.post('/api/v1/teachers', json={
+        'source_teacher_id': tid,
+        'name': name,
+        'phone': '13800138011',
+        'subjects': ['英语'],
+        'status': '在职',
+    })
+    assert create.status_code == 201, create.text
+    assert create.json()['data']['source_teacher_id'] == tid
+    assert create.json()['data']['status'] == '在职'
+
+    update = client.put(f'/api/v1/teachers/{tid}', json={
+        'phone': '13800138022',
+        'subjects': ['英语', '数学'],
+    })
+    assert update.status_code == 200, update.text
+    assert update.json()['data']['phone'] == '13800138022'
+    assert update.json()['data']['subjects'] == ['英语', '数学']
+
+    disable = client.patch(f'/api/v1/teachers/{tid}/status', json={'status': '停用'})
+    assert disable.status_code == 200, disable.text
+    assert disable.json()['data']['status'] == '停用'
+
+    listed = client.get('/api/v1/teachers', params={'q': tid, 'status': '停用', 'page': 1, 'page_size': 10})
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()['data']
+    hit = [x for x in rows if x['source_teacher_id'] == tid]
+    assert hit and hit[0]['status'] == '停用'
+
+
+def test_teacher_duplicate_and_missing_status_update():
+    tid = _uid('tch')
+    first = client.post('/api/v1/teachers', json={
+        'source_teacher_id': tid,
+        'name': f'Teacher Dup {tid}',
+        'subjects': ['语文'],
+        'status': '在职',
+    })
+    assert first.status_code == 201, first.text
+
+    duplicate = client.post('/api/v1/teachers', json={
+        'source_teacher_id': tid,
+        'name': f'Teacher Dup2 {tid}',
+        'subjects': ['语文'],
+        'status': '在职',
+    })
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()['error']['code'] == 'TEACHER_EXISTS'
+
+    missing = client.patch(f'/api/v1/teachers/{_uid("tch_missing")}/status', json={'status': '停用'})
+    assert missing.status_code == 404, missing.text
+    assert missing.json()['error']['code'] == 'TEACHER_NOT_FOUND'
+
+
+def test_income_expense_write_and_void_happy_path():
+    rid = _uid('fin')
+    create = client.post('/api/v1/income-expense', json={
+        'source_record_id': rid,
+        'item_type': '学费',
+        'direction': '收入',
+        'amount_cents': 12345,
+        'operation_date': '2026-03-22',
+        'payment_method': '微信',
+        'operator': '财务A',
+        'remark': '首笔录入',
+        'status': '正常',
+    })
+    assert create.status_code == 201, create.text
+    assert create.json()['data']['source_record_id'] == rid
+    assert create.json()['data']['status'] == '正常'
+
+    update = client.put(f'/api/v1/income-expense/{rid}', json={
+        'amount_cents': 13000,
+        'payment_method': '转账',
+        'remark': '更新备注',
+    })
+    assert update.status_code == 200, update.text
+    assert update.json()['data']['amount_cents'] == 13000
+    assert update.json()['data']['payment_method'] == '转账'
+
+    voided = client.post(f'/api/v1/income-expense/{rid}/void', json={'operator': '财务B', 'reason': '录入错误'})
+    assert voided.status_code == 200, voided.text
+    assert voided.json()['data']['status'] == '作废'
+
+    listed = client.get('/api/v1/income-expense', params={'q': rid, 'page': 1, 'page_size': 10})
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()['data']
+    hit = [x for x in rows if x['source_id'] == rid]
+    assert hit and hit[0]['status'] == '作废'
+
+
+def test_income_expense_invalid_direction_and_void_not_found():
+    invalid = client.post('/api/v1/income-expense', json={
+        'item_type': '采购',
+        'direction': 'UNKNOWN',
+        'amount_cents': 100,
+        'operation_date': '2026-03-22',
+    })
+    assert invalid.status_code == 422, invalid.text
+    assert invalid.json()['error']['code'] == 'INVALID_DIRECTION'
+
+    missing = client.post(f'/api/v1/income-expense/{_uid("fin_missing")}/void', json={'reason': 'x'})
+    assert missing.status_code == 404, missing.text
+    assert missing.json()['error']['code'] == 'INCOME_EXPENSE_NOT_FOUND'

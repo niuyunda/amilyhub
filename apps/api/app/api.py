@@ -126,6 +126,67 @@ class OrderActionRequest(BaseModel):
     reason: str | None = None
 
 
+class TeacherCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_teacher_id: str | None = None
+    name: str
+    phone: str | None = None
+    subjects: list[str] | None = None
+    status: str = "在职"
+
+
+class TeacherUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    phone: str | None = None
+    subjects: list[str] | None = None
+    status: str | None = None
+
+
+class TeacherStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+
+
+class IncomeExpenseCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_record_id: str | None = None
+    source_order_id: str | None = None
+    item_type: str
+    direction: str
+    amount_cents: int = Field(ge=0)
+    operation_date: date
+    payment_method: str | None = None
+    operator: str | None = None
+    remark: str | None = None
+    status: str = "正常"
+
+
+class IncomeExpenseUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_order_id: str | None = None
+    item_type: str | None = None
+    direction: str | None = None
+    amount_cents: int | None = Field(default=None, ge=0)
+    operation_date: date | None = None
+    payment_method: str | None = None
+    operator: str | None = None
+    remark: str | None = None
+    status: str | None = None
+
+
+class IncomeExpenseVoidRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str | None = None
+    reason: str | None = None
+
+
 class ScheduleEventCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -242,6 +303,50 @@ def as_int(value: Any) -> int:
 
 def generate_student_id() -> str:
     return f"STU{int(time.time() * 1000)}{random.randint(100, 999)}"
+
+
+def generate_teacher_id() -> str:
+    return f"TCH{int(time.time() * 1000)}{random.randint(100, 999)}"
+
+
+def generate_income_expense_id() -> str:
+    return f"FIN{int(time.time() * 1000)}{random.randint(100, 999)}"
+
+
+def normalize_teacher_status(status: str | None) -> str:
+    value = (status or "在职").strip()
+    if value in {"在职", "启用", "active", "ACTIVE", "ON", "NORMAL"}:
+        return "在职"
+    if value in {"停用", "禁用", "离职", "inactive", "INACTIVE", "OFF", "DISABLED"}:
+        return "停用"
+    raise ApiError(422, "INVALID_TEACHER_STATUS", "invalid teacher status")
+
+
+def normalize_subjects(subjects: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for subject in subjects or []:
+        name = str(subject or "").strip()
+        if name:
+            cleaned.append(name)
+    return cleaned[:20]
+
+
+def normalize_direction(direction: str) -> str:
+    value = str(direction or "").strip()
+    if value in {"收入", "IN", "INCOME"}:
+        return "收入"
+    if value in {"支出", "OUT", "EXPENSE"}:
+        return "支出"
+    raise ApiError(422, "INVALID_DIRECTION", "direction must be 收入 or 支出")
+
+
+def normalize_record_status(status: str | None) -> str:
+    value = str((status or "正常")).strip()
+    if value in {"正常", "有效", "normal", "NORMAL"}:
+        return "正常"
+    if value in {"作废", "VOID", "void", "voided", "VOIDED"}:
+        return "作废"
+    raise ApiError(422, "INVALID_RECORD_STATUS", "status must be 正常 or 作废")
 
 
 def ensure_courses_table():
@@ -944,19 +1049,152 @@ def enroll_student(source_student_id: str, payload: EnrollmentRequest):
 
 
 @app.get("/api/v1/teachers", response_model=ListResponse)
-def list_teachers(q: str | None = Query(default=None), page: int = Query(default=1), page_size: int = Query(default=20)):
-    clauses, params = [], []
+def list_teachers(
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=20),
+):
+    page, page_size, offset = pager(page, page_size)
+    clauses: list[str] = []
+    params: list[Any] = []
     if q:
         clauses.append("(name ilike %s or phone ilike %s)")
         params.extend([f"%{q}%", f"%{q}%"])
-    return list_query(
-        "teachers",
-        "id, source_teacher_id, name, phone, gender, last_month_lessons, current_month_lessons, total_finished_lessons",
-        clauses,
-        params,
-        page,
-        page_size,
+    if status:
+        clauses.append("coalesce(nullif(raw_json->>'status',''),'在职') = %s")
+        params.append(normalize_teacher_status(status))
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total = fetch_one(f"select count(*) as c from amilyhub.teachers {cond}", tuple(params))["c"]
+    rows = fetch_rows(
+        f"""
+        select
+          id,
+          source_teacher_id,
+          name,
+          phone,
+          gender,
+          last_month_lessons,
+          current_month_lessons,
+          total_finished_lessons,
+          coalesce(raw_json->'subjects', '[]'::jsonb) as subjects,
+          coalesce(nullif(raw_json->>'status',''),'在职') as status
+        from amilyhub.teachers
+        {cond}
+        order by id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
     )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
+
+
+@app.post("/api/v1/teachers", response_model=ObjectResponse, status_code=201)
+def create_teacher(payload: TeacherCreateRequest):
+    source_teacher_id = (payload.source_teacher_id or "").strip() or generate_teacher_id()
+    subjects = normalize_subjects(payload.subjects)
+    status = normalize_teacher_status(payload.status)
+    raw_json = {
+        "source_teacher_id": source_teacher_id,
+        "name": payload.name,
+        "phone": payload.phone,
+        "subjects": subjects,
+        "status": status,
+    }
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.teachers where source_teacher_id=%s", (source_teacher_id,))
+            if cur.fetchone():
+                raise ApiError(409, "TEACHER_EXISTS", "teacher already exists")
+            cur.execute(
+                """
+                insert into amilyhub.teachers(source_teacher_id, name, phone, raw_json)
+                values (%s, %s, %s, %s::jsonb)
+                returning id, source_teacher_id, name, phone,
+                          coalesce(raw_json->'subjects', '[]'::jsonb) as subjects,
+                          coalesce(nullif(raw_json->>'status',''),'在职') as status
+                """,
+                (source_teacher_id, payload.name, payload.phone, json.dumps(raw_json, ensure_ascii=False)),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.put("/api/v1/teachers/{source_teacher_id}", response_model=ObjectResponse)
+def update_teacher(source_teacher_id: str, payload: TeacherUpdateRequest):
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if "status" in updates:
+        updates["status"] = normalize_teacher_status(updates["status"])
+    if "subjects" in updates:
+        updates["subjects"] = normalize_subjects(updates["subjects"])
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one updatable field is required")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select source_teacher_id, name, phone, coalesce(raw_json, '{}'::jsonb) as raw_json
+                from amilyhub.teachers
+                where source_teacher_id=%s
+                """,
+                (source_teacher_id,),
+            )
+            found = cur.fetchone()
+            if not found:
+                raise ApiError(404, "TEACHER_NOT_FOUND", "teacher not found")
+            found_cols = [d.name for d in cur.description]
+            current = dict(zip(found_cols, found))
+
+            next_name = updates.get("name", current.get("name"))
+            next_phone = updates.get("phone", current.get("phone"))
+            raw_patch = {**updates, "source_teacher_id": source_teacher_id, "name": next_name, "phone": next_phone}
+            cur.execute(
+                """
+                update amilyhub.teachers
+                set
+                  name=%s,
+                  phone=%s,
+                  raw_json=coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_teacher_id=%s
+                returning id, source_teacher_id, name, phone,
+                          coalesce(raw_json->'subjects', '[]'::jsonb) as subjects,
+                          coalesce(nullif(raw_json->>'status',''),'在职') as status
+                """,
+                (next_name, next_phone, json.dumps(raw_patch, ensure_ascii=False), source_teacher_id),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.patch("/api/v1/teachers/{source_teacher_id}/status", response_model=ObjectResponse)
+def update_teacher_status(source_teacher_id: str, payload: TeacherStatusUpdateRequest):
+    status = normalize_teacher_status(payload.status)
+    raw_patch = {"status": status}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.teachers
+                set raw_json=coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_teacher_id=%s
+                returning id, source_teacher_id, name, phone,
+                          coalesce(raw_json->'subjects', '[]'::jsonb) as subjects,
+                          coalesce(nullif(raw_json->>'status',''),'在职') as status
+                """,
+                (json.dumps(raw_patch, ensure_ascii=False), source_teacher_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "TEACHER_NOT_FOUND", "teacher not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
 
 
 @app.get("/api/v1/orders", response_model=ListResponse)
@@ -1250,22 +1488,213 @@ def list_hour_cost_flows(
     )
 
 
+@app.post("/api/v1/income-expense", response_model=ObjectResponse, status_code=201)
+def create_income_expense(payload: IncomeExpenseCreateRequest):
+    source_record_id = (payload.source_record_id or "").strip() or generate_income_expense_id()
+    direction = normalize_direction(payload.direction)
+    status = normalize_record_status(payload.status)
+    raw_json = {
+        "source_record_id": source_record_id,
+        "payment_method": payload.payment_method,
+        "operator": payload.operator,
+        "remark": payload.remark,
+        "status": status,
+    }
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.income_expense where source_id=%s", (source_record_id,))
+            if cur.fetchone():
+                raise ApiError(409, "INCOME_EXPENSE_EXISTS", "income_expense record already exists")
+            cur.execute(
+                """
+                insert into amilyhub.income_expense
+                (source_id, source_order_id, item_type, direction, amount_cents, operation_date, source_created_at, raw_json)
+                values (%s, %s, %s, %s, %s, %s, now(), %s::jsonb)
+                returning
+                  id,
+                  source_id as source_record_id,
+                  source_id,
+                  source_order_id,
+                  item_type,
+                  direction,
+                  amount_cents,
+                  operation_date,
+                  source_created_at,
+                  coalesce(raw_json->>'payment_method', '-') as payment_method,
+                  coalesce(raw_json->>'operator', '-') as operator,
+                  coalesce(raw_json->>'remark', '') as remark,
+                  coalesce(nullif(raw_json->>'status',''),'正常') as status
+                """,
+                (
+                    source_record_id,
+                    payload.source_order_id,
+                    payload.item_type,
+                    direction,
+                    payload.amount_cents,
+                    payload.operation_date,
+                    json.dumps(raw_json, ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.put("/api/v1/income-expense/{source_record_id}", response_model=ObjectResponse)
+def update_income_expense(source_record_id: str, payload: IncomeExpenseUpdateRequest):
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if "direction" in updates:
+        updates["direction"] = normalize_direction(updates["direction"])
+    if "status" in updates:
+        updates["status"] = normalize_record_status(updates["status"])
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one updatable field is required")
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  source_id,
+                  source_order_id,
+                  item_type,
+                  direction,
+                  amount_cents,
+                  operation_date,
+                  coalesce(raw_json, '{}'::jsonb) as raw_json
+                from amilyhub.income_expense
+                where source_id=%s
+                """,
+                (source_record_id,),
+            )
+            found = cur.fetchone()
+            if not found:
+                raise ApiError(404, "INCOME_EXPENSE_NOT_FOUND", "income_expense record not found")
+            found_cols = [d.name for d in cur.description]
+            current = dict(zip(found_cols, found))
+
+            next_source_order_id = updates.get("source_order_id", current.get("source_order_id"))
+            next_item_type = updates.get("item_type", current.get("item_type"))
+            next_direction = updates.get("direction", current.get("direction"))
+            next_amount_cents = updates.get("amount_cents", current.get("amount_cents"))
+            next_operation_date = updates.get("operation_date", current.get("operation_date"))
+            raw_patch: dict[str, Any] = {}
+            if "payment_method" in updates:
+                raw_patch["payment_method"] = updates["payment_method"]
+            if "operator" in updates:
+                raw_patch["operator"] = updates["operator"]
+            if "remark" in updates:
+                raw_patch["remark"] = updates["remark"]
+            if "status" in updates:
+                raw_patch["status"] = updates["status"]
+
+            cur.execute(
+                """
+                update amilyhub.income_expense
+                set
+                  source_order_id=%s,
+                  item_type=%s,
+                  direction=%s,
+                  amount_cents=%s,
+                  operation_date=%s,
+                  raw_json=coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_id=%s
+                returning
+                  id,
+                  source_id as source_record_id,
+                  source_id,
+                  source_order_id,
+                  item_type,
+                  direction,
+                  amount_cents,
+                  operation_date,
+                  source_created_at,
+                  coalesce(raw_json->>'payment_method', '-') as payment_method,
+                  coalesce(raw_json->>'operator', '-') as operator,
+                  coalesce(raw_json->>'remark', '') as remark,
+                  coalesce(nullif(raw_json->>'status',''),'正常') as status
+                """,
+                (
+                    next_source_order_id,
+                    next_item_type,
+                    next_direction,
+                    next_amount_cents,
+                    next_operation_date,
+                    json.dumps(raw_patch, ensure_ascii=False, default=str),
+                    source_record_id,
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.post("/api/v1/income-expense/{source_record_id}/void", response_model=ObjectResponse)
+def void_income_expense(source_record_id: str, payload: IncomeExpenseVoidRequest | None = None):
+    operator = ((payload.operator if payload else None) or "system").strip() or "system"
+    reason = ((payload.reason if payload else None) or "manual_void").strip() or "manual_void"
+    raw_patch = {"status": "作废", "void_operator": operator, "void_reason": reason}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.income_expense
+                set raw_json=coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_id=%s
+                returning
+                  id,
+                  source_id as source_record_id,
+                  source_id,
+                  source_order_id,
+                  item_type,
+                  direction,
+                  amount_cents,
+                  operation_date,
+                  source_created_at,
+                  coalesce(raw_json->>'payment_method', '-') as payment_method,
+                  coalesce(raw_json->>'operator', '-') as operator,
+                  coalesce(raw_json->>'remark', '') as remark,
+                  coalesce(nullif(raw_json->>'status',''),'正常') as status
+                """,
+                (json.dumps(raw_patch, ensure_ascii=False), source_record_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "INCOME_EXPENSE_NOT_FOUND", "income_expense record not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
 @app.get("/api/v1/income-expense", response_model=ListResponse)
 def list_income_expense(
+    q: str | None = Query(default=None),
     direction: str | None = Query(default=None),
     item_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     operation_date_from: date | None = Query(default=None),
     operation_date_to: date | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=50),
 ):
-    clauses, params = [], []
+    clauses: list[str] = []
+    params: list[Any] = []
+    if q:
+        clauses.append(
+            "(source_id ilike %s or coalesce(item_type,'') ilike %s or coalesce(raw_json->>'operator','') ilike %s or coalesce(raw_json->>'remark','') ilike %s)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if direction:
         clauses.append("direction = %s")
-        params.append(direction)
+        params.append(normalize_direction(direction))
     if item_type:
         clauses.append("item_type = %s")
         params.append(item_type)
+    if status:
+        clauses.append("coalesce(nullif(raw_json->>'status',''),'正常') = %s")
+        params.append(normalize_record_status(status))
     if operation_date_from:
         clauses.append("operation_date >= %s")
         params.append(operation_date_from)
@@ -1274,7 +1703,21 @@ def list_income_expense(
         params.append(operation_date_to)
     return list_query(
         "income_expense",
-        "id, source_id, source_order_id, item_type, direction, amount_cents, operation_date, source_created_at",
+        """
+        id,
+        source_id as source_record_id,
+        source_id,
+        source_order_id,
+        item_type,
+        direction,
+        amount_cents,
+        operation_date,
+        source_created_at,
+        coalesce(raw_json->>'payment_method', '-') as payment_method,
+        coalesce(raw_json->>'operator', '-') as operator,
+        coalesce(raw_json->>'remark', '') as remark,
+        coalesce(nullif(raw_json->>'status',''),'正常') as status
+        """,
         clauses,
         params,
         page,
