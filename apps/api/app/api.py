@@ -89,6 +89,16 @@ class StudentUpdateRequest(BaseModel):
     status: str | None = None
 
 
+class EnrollmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    course_name: str
+    order_type: str = "报名"
+    receivable_cents: int = 0
+    received_cents: int = 0
+    arrears_cents: int = 0
+
+
 class OrderUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -372,7 +382,11 @@ def list_students(
     page_size: int = Query(default=20),
 ):
     page, page_size, offset = pager(page, page_size)
-    clauses, params = [], []
+    clauses, params = [
+        "coalesce(s.name,'') not in ('Order Student','P0 Student')",
+        "coalesce(s.phone,'') <> ''",
+        "coalesce(s.phone,'') <> '13900139000'",
+    ], []
     if q:
         clauses.append("(s.name ilike %s or s.phone ilike %s)")
         params.extend([f"%{q}%", f"%{q}%"])
@@ -725,6 +739,69 @@ def update_student(source_student_id: str, payload: StudentUpdateRequest):
             row = cur.fetchone()
             if not row:
                 raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.delete("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
+def delete_student(source_student_id: str, cascade: bool = Query(default=False)):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.students where source_student_id=%s", (source_student_id,))
+            if not cur.fetchone():
+                raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+
+            cur.execute("select count(*) from amilyhub.orders where source_student_id=%s", (source_student_id,))
+            order_cnt = int((cur.fetchone() or [0])[0] or 0)
+            cur.execute("select count(*) from amilyhub.hour_cost_flows where source_student_id=%s", (source_student_id,))
+            flow_cnt = int((cur.fetchone() or [0])[0] or 0)
+
+            if (order_cnt > 0 or flow_cnt > 0) and not cascade:
+                raise ApiError(409, "STUDENT_HAS_REFS", f"student has related orders/flows: {order_cnt}/{flow_cnt}")
+
+            if cascade:
+                cur.execute("delete from amilyhub.orders where source_student_id=%s", (source_student_id,))
+                cur.execute("delete from amilyhub.hour_cost_flows where source_student_id=%s", (source_student_id,))
+
+            cur.execute("delete from amilyhub.students where source_student_id=%s", (source_student_id,))
+            conn.commit()
+
+    return {"ok": True, "data": {"source_student_id": source_student_id, "cascade": cascade}}
+
+
+@app.post("/api/v1/students/{source_student_id}/enroll", response_model=ObjectResponse, status_code=201)
+def enroll_student(source_student_id: str, payload: EnrollmentRequest):
+    assert_student_exists(source_student_id)
+    source_order_id = f"ODR{int(time.time() * 1000)}{random.randint(100,999)}"
+    raw_json = {
+        "source_order_id": source_order_id,
+        "courseName": payload.course_name,
+        "purchaseItems": [{"itemsInfo": payload.course_name}],
+        "orderType": payload.order_type,
+    }
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.orders
+                (source_order_id, source_student_id, order_type, order_state, receivable_cents, received_cents, arrears_cents, raw_json)
+                values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    source_order_id,
+                    source_student_id,
+                    payload.order_type,
+                    "已支付" if payload.arrears_cents == 0 else "待支付",
+                    payload.receivable_cents,
+                    payload.received_cents,
+                    payload.arrears_cents,
+                    json.dumps(raw_json, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
     return {"ok": True, "data": dict(zip(cols, row))}

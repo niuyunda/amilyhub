@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createStudent, getStudentProfile, getStudents, updateStudent } from "@/src/services/core-service";
+import { createStudent, deleteStudent, enrollStudent, getStudentProfile, getStudents, updateStudent } from "@/src/services/core-service";
 import type { Student } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
@@ -78,7 +78,10 @@ export default function StudentsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [enrollCourse, setEnrollCourse] = useState("");
+  const [enrollAmount, setEnrollAmount] = useState("0");
   const [form, setForm] = useState<StudentFormState>(DEFAULT_FORM);
   const [statusStats, setStatusStats] = useState({ all: 0, active: 0, suspended: 0, ended: 0 });
 
@@ -243,6 +246,68 @@ export default function StudentsPage() {
     }
   };
 
+  const openEnroll = () => {
+    if (!selected) {
+      toast.warning("请先点击一行学员");
+      return;
+    }
+    setEnrollCourse("");
+    setEnrollAmount("0");
+    setEnrollOpen(true);
+  };
+
+  const onEnroll = async () => {
+    if (!selected) return;
+    if (!enrollCourse.trim()) {
+      toast.warning("请填写课程名称");
+      return;
+    }
+    const amount = Math.max(0, Number(enrollAmount || "0"));
+    try {
+      setSubmitting(true);
+      const result = await enrollStudent(selected.id, {
+        courseName: enrollCourse.trim(),
+        receivableCents: Math.round(amount * 100),
+        receivedCents: Math.round(amount * 100),
+        arrearsCents: 0,
+      });
+      if (result.kind === "forbidden") {
+        setStatus("forbidden");
+        return;
+      }
+      toast.success("报名成功");
+      setEnrollOpen(false);
+      await load(page);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "报名失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onDelete = async () => {
+    if (!selected) {
+      toast.warning("请先点击一行学员");
+      return;
+    }
+    if (!window.confirm(`确认删除学员 ${selected.name}？`)) return;
+    try {
+      setSubmitting(true);
+      const result = await deleteStudent(selected.id, true);
+      if (result.kind === "forbidden") {
+        setStatus("forbidden");
+        return;
+      }
+      toast.success("学员已删除");
+      setSelected(null);
+      await load(1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "删除失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const exportCsv = () => {
     const header = ["学员ID", "学员姓名", "手机号", "状态", "所在班级", "年龄", "创建时间"];
     const lines = rows.map((r) => [r.id, r.name, r.phone, r.status, r.className, r.age ?? "", r.createdAt]);
@@ -268,6 +333,8 @@ export default function StudentsPage() {
           <>
             <Button onClick={openCreate}>新增学员</Button>
             <Button variant="outline" onClick={openEdit}>编辑学员</Button>
+            <Button variant="outline" onClick={openEnroll}>报名</Button>
+            <Button variant="destructive" onClick={() => void onDelete()}>删除学员</Button>
             <Button variant="outline" onClick={exportCsv}>导出</Button>
           </>
         }
@@ -365,6 +432,23 @@ export default function StudentsPage() {
         onFormChange={setForm}
         onSubmit={onEdit}
       />
+
+      <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>学员报名</DialogTitle>
+            <DialogDescription>为当前学员创建一笔报名订单（对齐小麦“报名”主流程）。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <Input placeholder="课程名称" value={enrollCourse} onChange={(e) => setEnrollCourse(e.target.value)} />
+            <Input type="number" placeholder="报名金额（元）" value={enrollAmount} onChange={(e) => setEnrollAmount(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEnrollOpen(false)}>取消</Button>
+            <Button disabled={submitting} onClick={() => void onEnroll()}>{submitting ? "提交中..." : "确认报名"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

@@ -419,6 +419,37 @@ export async function updateStudent(studentId: string, input: {
   }
 }
 
+export async function deleteStudent(studentId: string, cascade = false): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("DELETE", `/students/${encodeURIComponent(studentId)}?cascade=${cascade ? "true" : "false"}`);
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function enrollStudent(studentId: string, input: {
+  courseName: string;
+  receivableCents: number;
+  receivedCents: number;
+  arrearsCents: number;
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", `/students/${encodeURIComponent(studentId)}/enroll`, {
+      course_name: input.courseName,
+      order_type: "报名",
+      receivable_cents: input.receivableCents,
+      received_cents: input.receivedCents,
+      arrears_cents: input.arrearsCents,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
 export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<PageResult<ScheduleItem>>> {
   try {
     const r = await getJson<ApiList<any>>("/schedules", {
