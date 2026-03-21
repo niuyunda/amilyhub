@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ import { getDashboard } from "@/src/services/core-service";
 import type { DashboardData } from "@/src/types/domain";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "forbidden">("loading");
   const [error, setError] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -98,7 +100,21 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-2">
                 {data.quickActions.map((action) => (
-                  <Button key={action.id} variant="outline" onClick={() => toast.success(`${action.label}（演示）`)}>
+                  <Button
+                    key={action.id}
+                    variant="outline"
+                    onClick={() => {
+                      const routes: Record<string, string> = {
+                        student: "/students",
+                        order: "/orders",
+                        class: "/classes",
+                        finance: "/finance",
+                      };
+                      const target = routes[action.id];
+                      if (target) router.push(target);
+                      else toast.success(`${action.label}（演示）`);
+                    }}
+                  >
                     {action.label}
                   </Button>
                 ))}
