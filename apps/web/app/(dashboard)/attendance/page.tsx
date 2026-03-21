@@ -16,6 +16,13 @@ import type { AttendanceRecord } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
 
+function isoLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function statusVariant(status: string): "default" | "secondary" | "outline" {
   if (status.includes("到") || status.includes("已")) return "default";
   if (status.includes("未") || status === "-") return "secondary";
@@ -33,11 +40,19 @@ export default function AttendancePage() {
   const [keyword, setKeyword] = useState("");
   const [teacherName, setTeacherName] = useState("");
   const [className, setClassName] = useState("");
-  const [rollcallDateStart, setRollcallDateStart] = useState("");
-  const [rollcallDateEnd, setRollcallDateEnd] = useState("");
+  const today = useMemo(() => new Date(), []);
+  const defaultRollcallEnd = useMemo(() => isoLocalDate(today), [today]);
+  const defaultRollcallStart = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 30);
+    return isoLocalDate(d);
+  }, [today]);
+
+  const [rollcallDateStart, setRollcallDateStart] = useState(defaultRollcallStart);
+  const [rollcallDateEnd, setRollcallDateEnd] = useState(defaultRollcallEnd);
   const [classDateStart, setClassDateStart] = useState("");
   const [classDateEnd, setClassDateEnd] = useState("");
-  const [stateFilter, setStateFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("正常");
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
@@ -109,7 +124,7 @@ export default function AttendancePage() {
               </SelectContent>
             </Select>
             <Button onClick={() => void load(1)}>查询</Button>
-            <Button variant="outline" onClick={() => { setKeyword(""); setTeacherName(""); setClassName(""); setClassDateStart(""); setClassDateEnd(""); setRollcallDateStart(""); setRollcallDateEnd(""); setStateFilter("all"); void load(1); }}>重置</Button>
+            <Button variant="outline" onClick={() => { setKeyword(""); setTeacherName(""); setClassName(""); setClassDateStart(""); setClassDateEnd(""); setRollcallDateStart(defaultRollcallStart); setRollcallDateEnd(defaultRollcallEnd); setStateFilter("正常"); void load(1); }}>重置</Button>
           </div>
         </CardContent>
       </Card>

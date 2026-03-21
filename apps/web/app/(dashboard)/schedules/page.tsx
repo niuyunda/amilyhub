@@ -20,7 +20,7 @@ export default function SchedulesPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState("");
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
