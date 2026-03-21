@@ -219,6 +219,40 @@ def ensure_courses_table():
             conn.commit()
 
 
+def normalize_pricing_items(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for x in items or []:
+        name = str((x or {}).get("name") or "").strip()
+        if not name:
+            continue
+        quantity = float((x or {}).get("quantity") or 0)
+        total_price = float((x or {}).get("totalPrice") or 0)
+        price = (total_price / quantity) if quantity else 0.0
+        normalized.append({
+            "name": name,
+            "quantity": quantity,
+            "totalPrice": total_price,
+            "price": price,
+        })
+    return normalized[:10]
+
+
+def pricing_items_to_text(items: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for x in items:
+        name = str(x.get("name") or "").strip()
+        qty = float(x.get("quantity") or 0)
+        total = float(x.get("totalPrice") or 0)
+        price = float(x.get("price") or 0)
+        if not name:
+            continue
+        if qty == 1:
+            lines.append(f"{name}({price:g}元/课时)")
+        else:
+            lines.append(f"{name}({total:g}元{qty:g}课时)")
+    return "\n".join(lines) if lines else "-"
+
+
 def assert_student_exists(source_student_id: str):
     row = fetch_one("select 1 as ok from amilyhub.students where source_student_id=%s", (source_student_id,))
     if not row:
@@ -958,6 +992,10 @@ def list_courses(
 def create_course(payload: CourseUpsertRequest):
     ensure_courses_table()
     src = payload.source_course_id or f"LOCAL_{int(time.time()*1000)}_{random.randint(100,999)}"
+    pricing_items = normalize_pricing_items(payload.pricing_items)
+    pricing_rules = pricing_items_to_text(pricing_items) if pricing_items else (payload.pricing_rules or "-")
+    raw = payload.model_dump(mode="json")
+    raw["pricing_items"] = pricing_items
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -966,7 +1004,7 @@ def create_course(payload: CourseUpsertRequest):
                 values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
                 """,
-                (src, payload.name, payload.course_type, payload.fee_type, payload.status, payload.pricing_rules, payload.student_num, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False)),
+                (src, payload.name, payload.course_type, payload.fee_type, payload.status, pricing_rules, payload.student_num, json.dumps(raw, ensure_ascii=False)),
             )
             row = cur.fetchone(); cols=[d.name for d in cur.description]
             conn.commit()
@@ -976,6 +1014,10 @@ def create_course(payload: CourseUpsertRequest):
 @app.put("/api/v1/courses/{course_id}", response_model=ObjectResponse)
 def update_course(course_id: str, payload: CourseUpsertRequest):
     ensure_courses_table()
+    pricing_items = normalize_pricing_items(payload.pricing_items)
+    pricing_rules = pricing_items_to_text(pricing_items) if pricing_items else (payload.pricing_rules or "-")
+    raw = payload.model_dump(mode="json")
+    raw["pricing_items"] = pricing_items
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -985,7 +1027,7 @@ def update_course(course_id: str, payload: CourseUpsertRequest):
                 where id=%s
                 returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
                 """,
-                (payload.name, payload.course_type, payload.fee_type, payload.status, payload.pricing_rules, payload.student_num, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False), int(course_id)),
+                (payload.name, payload.course_type, payload.fee_type, payload.status, pricing_rules, payload.student_num, json.dumps(raw, ensure_ascii=False), int(course_id)),
             )
             row = cur.fetchone()
             if not row:

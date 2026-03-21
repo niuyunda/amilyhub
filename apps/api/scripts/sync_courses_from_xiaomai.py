@@ -19,18 +19,29 @@ def map_type(t,name):
 def map_status(s):
     return '启用' if s=='ON' else '停用'
 
-def pricing_lines(course_price_vo):
+def pricing_items(course_price_vo):
     out=[]
     for rule in course_price_vo or []:
         for p in rule.get('priceListVOS') or []:
             n=p.get('priceName') or '单价'
-            price=p.get('price') or 0
-            q=p.get('quantity') or 1
-            total=p.get('totalPrice') or price
-            if q and q!=1:
-                out.append(f"{n}({int(total) if total==int(total) else total}元{int(q) if q==int(q) else q}课时)")
-            else:
-                out.append(f"{n}({int(price) if price==int(price) else price}元/课时)")
+            price=float(p.get('price') or 0)
+            q=float(p.get('quantity') or 1)
+            total=float(p.get('totalPrice') or price)
+            out.append({'name': n, 'quantity': q, 'totalPrice': total, 'price': price})
+    return out[:10]
+
+
+def pricing_lines(items):
+    out=[]
+    for p in items:
+        n=p.get('name') or '单价'
+        price=float(p.get('price') or 0)
+        q=float(p.get('quantity') or 1)
+        total=float(p.get('totalPrice') or price)
+        if q and q!=1:
+            out.append(f"{n}({int(total) if total==int(total) else total}元{int(q) if q==int(q) else q}课时)")
+        else:
+            out.append(f"{n}({int(price) if price==int(price) else price}元/课时)")
     return '\n'.join(dict.fromkeys(out)) if out else '-'
 
 def run():
@@ -52,6 +63,9 @@ def run():
         with conn.cursor() as cur:
             cur.execute('truncate table amilyhub.courses')
             for x in all_rows:
+                items = pricing_items(x.get('coursePriceVO'))
+                payload = dict(x)
+                payload['pricing_items'] = items
                 cur.execute('''
                     insert into amilyhub.courses(source_course_id,name,course_type,fee_type,status,pricing_rules,student_num,raw_json)
                     values(%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
@@ -61,9 +75,9 @@ def run():
                     map_type(x.get('type'), x.get('name') or ''),
                     '按课时' if (x.get('feeType') or '')=='CLASS_HOUR' else '按周期',
                     map_status(x.get('status')),
-                    pricing_lines(x.get('coursePriceVO')),
+                    pricing_lines(items),
                     int(x.get('studentNum') or 0),
-                    json.dumps(x,ensure_ascii=False),
+                    json.dumps(payload,ensure_ascii=False),
                 ))
             conn.commit()
     print(json.dumps({'ok':True,'rows':len(all_rows)},ensure_ascii=False))
