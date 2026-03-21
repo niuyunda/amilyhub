@@ -1069,6 +1069,66 @@ def get_class_profile(class_id: str):
     return {"ok": True, "data": {"class": class_info, "schedules": schedules, "students": students, "attendance": attendance}}
 
 
+@app.get("/api/v1/schedules", response_model=ListResponse)
+def list_schedules(
+    view: str = Query(default="time"),
+    q: str | None = Query(default=None),
+    date: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=50),
+):
+    page, page_size, offset = pager(page, page_size)
+
+    view_expr_map = {
+        "time": "coalesce(h.raw_json->>'timeRange', '-')",
+        "teacher": "coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName', '-')",
+        "room": "coalesce(h.raw_json->>'classRoomName', h.raw_json->>'roomName', '-')",
+        "class": "coalesce(h.raw_json->>'className', '-')",
+    }
+    view_expr = view_expr_map.get(view, view_expr_map["time"])
+
+    clauses, params = ["coalesce(h.raw_json->>'classId','') <> ''"], []
+    if q:
+        clauses.append("(coalesce(h.raw_json->>'className','') ilike %s or coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName','') ilike %s or coalesce(h.raw_json->>'studentName','') ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if date:
+        clauses.append("to_char(h.checked_at at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
+        params.append(date)
+
+    cond = " where " + " and ".join(clauses)
+
+    total = fetch_one(
+        f"""
+        select count(*) as c
+        from amilyhub.hour_cost_flows h
+        {cond}
+        """,
+        tuple(params),
+    )
+
+    rows = fetch_rows(
+        f"""
+        select
+          h.source_id as id,
+          {view_expr} as view_key,
+          h.checked_at as date_time,
+          coalesce(h.raw_json->>'timeRange', '-') as time_range,
+          coalesce(h.raw_json->>'className', '-') as class_name,
+          coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName', '-') as teacher_name,
+          coalesce(h.raw_json->>'classRoomName', h.raw_json->>'roomName', '-') as room_name,
+          coalesce(h.raw_json->>'studentName', '-') as student_name,
+          coalesce(h.raw_json->>'rollCallStateDesc', '-') as status
+        from amilyhub.hour_cost_flows h
+        {cond}
+        order by h.checked_at desc nulls last, h.id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
+    )
+
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total or {}).get("c", 0) or 0)}}
+
+
 @app.get("/api/v1/rollcalls", response_model=ListResponse)
 def list_rollcalls(
     q: str | None = Query(default=None),

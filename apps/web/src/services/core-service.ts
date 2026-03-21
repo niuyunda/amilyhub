@@ -4,6 +4,7 @@ import type {
   FinanceRecord,
   FinanceSummary,
   Order,
+  ScheduleItem,
   Student,
   Teacher,
 } from "@/src/types/domain";
@@ -12,6 +13,7 @@ import type {
   FinanceQuery,
   OrderQuery,
   PageResult,
+  ScheduleQuery,
   ServiceResult,
   StudentQuery,
   TeacherQuery,
@@ -309,6 +311,37 @@ export async function updateStudent(studentId: string, input: {
     };
     const r = await sendJson<ApiObj<any>>("PUT", `/students/${encodeURIComponent(studentId)}`, payload);
     return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<PageResult<ScheduleItem>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/schedules", {
+      view: query.view,
+      q: query.keyword,
+      date: query.date,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.id ?? "-"),
+        viewKey: x.view_key ?? "-",
+        dateTime: formatDateTime(x.date_time),
+        timeRange: x.time_range ?? "-",
+        className: x.class_name ?? "-",
+        teacherName: String(x.teacher_name ?? "-").replace(/[\[\]"]/g, ""),
+        roomName: x.room_name ?? "-",
+        studentName: x.student_name ?? "-",
+        status: x.status ?? "-",
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;

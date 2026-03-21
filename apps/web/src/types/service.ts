@@ -38,4 +38,9 @@ export interface FinanceQuery extends ListQuery {
   direction?: "收入" | "支出";
 }
 
+export interface ScheduleQuery extends ListQuery {
+  view: "time" | "teacher" | "room" | "class";
+  date?: string;
+}
+
 export type ServiceResult<T> = { kind: "ok"; data: T } | { kind: "forbidden"; message: string };

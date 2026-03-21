@@ -92,6 +92,18 @@ export interface FinanceSummary {
   netIncomeYuan: number;
 }
 
+export interface ScheduleItem {
+  id: string;
+  viewKey: string;
+  dateTime: string;
+  timeRange: string;
+  className: string;
+  teacherName: string;
+  roomName: string;
+  studentName: string;
+  status: string;
+}
+
 export interface DashboardData {
   kpi: DashboardKpi;
   todos: TodoItem[];
