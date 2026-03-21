@@ -100,6 +100,18 @@ class OrderUpdateRequest(BaseModel):
     arrears_cents: int | None = None
 
 
+class CourseUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_course_id: str | None = None
+    name: str
+    course_type: str = "一对多"
+    fee_type: str = "按课时"
+    status: str = "启用"
+    pricing_rules: str = "-"
+    student_num: int = 0
+
+
 class DashboardSummary(BaseModel):
     students: int
     active_students: int
@@ -181,6 +193,29 @@ def as_int(value: Any) -> int:
 
 def generate_student_id() -> str:
     return f"STU{int(time.time() * 1000)}{random.randint(100, 999)}"
+
+
+def ensure_courses_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                create table if not exists amilyhub.courses (
+                  id bigserial primary key,
+                  source_course_id text unique,
+                  name text not null,
+                  course_type text,
+                  fee_type text,
+                  status text,
+                  pricing_rules text,
+                  student_num int default 0,
+                  raw_json jsonb default '{}'::jsonb,
+                  created_at timestamptz default now(),
+                  updated_at timestamptz default now()
+                )
+                """
+            )
+            conn.commit()
 
 
 def assert_student_exists(source_student_id: str):
@@ -882,110 +917,93 @@ def list_courses(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
+    ensure_courses_table()
     page, page_size, offset = pager(page, page_size)
-    clauses, params = ["g.course_name <> ''"], []
-
+    clauses, params = [], []
     if q:
-        clauses.append("g.course_name ilike %s")
+        clauses.append("name ilike %s")
         params.append(f"%{q}%")
     if course_type:
-        clauses.append("g.course_type = %s")
+        clauses.append("course_type = %s")
         params.append(course_type)
     if status:
-        clauses.append("g.status = %s")
+        clauses.append("status = %s")
         params.append(status)
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
 
-    cond = f" where {' and '.join(clauses)} "
-
-    total_row = fetch_one(
-        f"""
-        with course_base as (
-          select
-            coalesce(nullif(h.raw_json->>'courseName',''), '') as course_name,
-            case
-              when coalesce(h.raw_json->>'courseType','') in ('ONE2ONE','ONE2ONE_CLASS') then '一对一'
-              when position('一对一' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
-              when position('1v1' in lower(coalesce(h.raw_json->>'courseName',''))) > 0 then '一对一'
-              when position('1对1' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
-              else '一对多'
-            end as course_type
-          from amilyhub.hour_cost_flows h
-          where coalesce(h.raw_json->>'courseName','') <> ''
-        ), grouped as (
-          select course_name, max(course_type) as course_type, '按课时'::text as charge_type, '启用'::text as status
-          from course_base
-          group by course_name
-        )
-        select count(*) as c from grouped g {cond}
-        """,
-        tuple(params),
-    )
-
+    total = fetch_one(f"select count(*) as c from amilyhub.courses {cond}", tuple(params))
     rows = fetch_rows(
         f"""
-        with course_base as (
-          select
-            coalesce(nullif(h.raw_json->>'courseName',''), '') as course_name,
-            case
-              when coalesce(h.raw_json->>'courseType','') in ('ONE2ONE','ONE2ONE_CLASS') then '一对一'
-              when position('一对一' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
-              when position('1v1' in lower(coalesce(h.raw_json->>'courseName',''))) > 0 then '一对一'
-              when position('1对1' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
-              else '一对多'
-            end as course_type
-          from amilyhub.hour_cost_flows h
-          where coalesce(h.raw_json->>'courseName','') <> ''
-        ), grouped as (
-          select
-            course_name,
-            max(course_type) as course_type,
-            '按课时'::text as charge_type,
-            '启用'::text as status
-          from course_base
-          group by course_name
-        ), active_students as (
-          select
-            coalesce(h.raw_json->>'courseName','') as course_name,
-            count(distinct coalesce(h.raw_json->>'studentId','')) as active_students
-          from amilyhub.hour_cost_flows h
-          where coalesce(h.raw_json->>'courseName','') <> ''
-            and coalesce(h.raw_json->>'studentId','') <> ''
-            and coalesce(h.raw_json->>'state','') = 'VALID'
-          group by coalesce(h.raw_json->>'courseName','')
-        ), pricing as (
-          select
-            x.course_name,
-            string_agg(distinct x.item_info, E'\n' order by x.item_info) as pricing_rules
-          from (
-            select
-              coalesce(o.raw_json->>'courseName','') as course_name,
-              coalesce(pi->>'itemsInfo','') as item_info
-            from amilyhub.orders o
-            left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems','[]'::jsonb)) pi on true
-            where coalesce(pi->>'itemsInfo','') <> ''
-          ) x
-          where x.course_name <> ''
-          group by x.course_name
-        )
         select
-          row_number() over(order by g.course_name) as id,
-          g.course_name,
-          g.course_type,
-          g.charge_type,
-          coalesce(p.pricing_rules, '-') as pricing_rules,
-          coalesce(a.active_students, 0) as active_students,
-          g.status
-        from grouped g
-        left join active_students a on a.course_name = g.course_name
-        left join pricing p on p.course_name = g.course_name
+          id,
+          coalesce(name,'-') as course_name,
+          coalesce(course_type,'一对多') as course_type,
+          coalesce(fee_type,'按课时') as charge_type,
+          coalesce(pricing_rules,'-') as pricing_rules,
+          coalesce(student_num,0) as active_students,
+          coalesce(status,'启用') as status
+        from amilyhub.courses
         {cond}
-        order by g.course_name
+        order by id desc
         limit %s offset %s
         """,
         tuple(params + [page_size, offset]),
     )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total or {}).get('c', 0) or 0)}}
 
-    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total_row or {}).get('c', 0) or 0)}}
+
+@app.post("/api/v1/courses", response_model=ObjectResponse, status_code=201)
+def create_course(payload: CourseUpsertRequest):
+    ensure_courses_table()
+    src = payload.source_course_id or f"LOCAL_{int(time.time()*1000)}_{random.randint(100,999)}"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.courses(source_course_id, name, course_type, fee_type, status, pricing_rules, student_num, raw_json)
+                values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
+                """,
+                (src, payload.name, payload.course_type, payload.fee_type, payload.status, payload.pricing_rules, payload.student_num, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False)),
+            )
+            row = cur.fetchone(); cols=[d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols,row))}
+
+
+@app.put("/api/v1/courses/{course_id}", response_model=ObjectResponse)
+def update_course(course_id: str, payload: CourseUpsertRequest):
+    ensure_courses_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.courses
+                set name=%s, course_type=%s, fee_type=%s, status=%s, pricing_rules=%s, student_num=%s, raw_json=%s::jsonb, updated_at=now()
+                where id=%s
+                returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
+                """,
+                (payload.name, payload.course_type, payload.fee_type, payload.status, payload.pricing_rules, payload.student_num, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False), int(course_id)),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "COURSE_NOT_FOUND", "course not found")
+            cols=[d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols,row))}
+
+
+@app.delete("/api/v1/courses/{course_id}", response_model=ObjectResponse)
+def delete_course(course_id: str):
+    ensure_courses_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from amilyhub.courses where id=%s returning id", (int(course_id),))
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "COURSE_NOT_FOUND", "course not found")
+            conn.commit()
+    return {"ok": True, "data": {"id": int(course_id)}}
 
 
 @app.get("/api/v1/classes", response_model=ListResponse)

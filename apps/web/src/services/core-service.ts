@@ -54,11 +54,11 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
   return res.json() as Promise<T>;
 }
 
-async function sendJson<T>(method: "POST" | "PUT", path: string, body: Record<string, unknown>): Promise<T> {
+async function sendJson<T>(method: "POST" | "PUT" | "DELETE", path: string, body?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 403) throw new Error("FORBIDDEN");
   if (!res.ok) {
@@ -250,6 +250,64 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
       pageSize: r.page.page_size,
       total: r.page.total,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createCourse(input: {
+  name: string;
+  courseType: "一对一" | "一对多";
+  feeType: string;
+  status: "启用" | "停用";
+  pricingRules: string;
+  studentNum?: number;
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/courses", {
+      name: input.name,
+      course_type: input.courseType,
+      fee_type: input.feeType,
+      status: input.status,
+      pricing_rules: input.pricingRules,
+      student_num: input.studentNum ?? 0,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function updateCourse(courseId: string, input: {
+  name: string;
+  courseType: "一对一" | "一对多";
+  feeType: string;
+  status: "启用" | "停用";
+  pricingRules: string;
+  studentNum?: number;
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/courses/${encodeURIComponent(courseId)}`, {
+      name: input.name,
+      course_type: input.courseType,
+      fee_type: input.feeType,
+      status: input.status,
+      pricing_rules: input.pricingRules,
+      student_num: input.studentNum ?? 0,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function deleteCourse(courseId: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("DELETE", `/courses/${encodeURIComponent(courseId)}`);
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;
