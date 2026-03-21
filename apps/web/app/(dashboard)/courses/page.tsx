@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createCourse, deleteCourse, getCourses, updateCourse } from "@/src/services/core-service";
 import type { CourseItem } from "@/src/types/domain";
 
@@ -24,6 +25,14 @@ export default function CoursesPage() {
   const [keyword, setKeyword] = useState("");
   const [courseType, setCourseType] = useState("all");
   const [courseStatus, setCourseStatus] = useState("all");
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formCourseType, setFormCourseType] = useState<"一对一" | "一对多">("一对多");
+  const [formStatus, setFormStatus] = useState<"启用" | "停用">("启用");
+  const [formPricingRules, setFormPricingRules] = useState("单价(130元/课时)");
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
@@ -51,23 +60,52 @@ export default function CoursesPage() {
     });
   }, [load]);
 
-  const onCreate = async () => {
-    const name = window.prompt("课程名称");
-    if (!name) return;
-    const courseType = (window.prompt("课程类型（一对一/一对多）", "一对多") || "一对多") as "一对一" | "一对多";
-    const status = (window.prompt("状态（启用/停用）", "启用") || "启用") as "启用" | "停用";
-    const pricingRules = window.prompt("定价标准（可多行）", "单价(130元/课时)") || "-";
-    await createCourse({ name, courseType, feeType: "按课时", status, pricingRules, studentNum: 0 });
-    void load(1);
+  const openCreateForm = () => {
+    setFormMode("create");
+    setEditingId(null);
+    setFormName("");
+    setFormCourseType("一对多");
+    setFormStatus("启用");
+    setFormPricingRules("单价(130元/课时)");
+    setFormOpen(true);
   };
 
-  const onEdit = async (row: CourseItem) => {
-    const name = window.prompt("课程名称", row.courseName);
-    if (!name) return;
-    const courseType = (window.prompt("课程类型（一对一/一对多）", row.courseType) || row.courseType) as "一对一" | "一对多";
-    const status = (window.prompt("状态（启用/停用）", row.status) || row.status) as "启用" | "停用";
-    const pricingRules = window.prompt("定价标准（可多行）", row.pricingRules) || row.pricingRules;
-    await updateCourse(row.id, { name, courseType, feeType: row.chargeType, status, pricingRules, studentNum: row.activeStudents });
+  const openEditForm = (row: CourseItem) => {
+    setFormMode("edit");
+    setEditingId(row.id);
+    setFormName(row.courseName);
+    setFormCourseType(row.courseType);
+    setFormStatus(row.status);
+    setFormPricingRules(row.pricingRules || "-");
+    setFormOpen(true);
+  };
+
+  const submitForm = async () => {
+    if (!formName.trim()) return;
+    if (formMode === "create") {
+      await createCourse({
+        name: formName.trim(),
+        courseType: formCourseType,
+        feeType: "按课时",
+        status: formStatus,
+        pricingRules: formPricingRules || "-",
+        studentNum: 0,
+      });
+      setFormOpen(false);
+      void load(1);
+      return;
+    }
+
+    if (!editingId) return;
+    await updateCourse(editingId, {
+      name: formName.trim(),
+      courseType: formCourseType,
+      feeType: "按课时",
+      status: formStatus,
+      pricingRules: formPricingRules || "-",
+      studentNum: 0,
+    });
+    setFormOpen(false);
     void load(page);
   };
 
@@ -89,7 +127,7 @@ export default function CoursesPage() {
       title: "操作",
       render: (row) => (
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); void onEdit(row); }}>编辑</Button>
+          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openEditForm(row); }}>编辑</Button>
           <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); void onDelete(row); }}>删除</Button>
         </div>
       ),
@@ -125,7 +163,7 @@ export default function CoursesPage() {
             </Select>
             <Button onClick={() => void load(1)}>查询</Button>
             <Button variant="outline" onClick={() => { setKeyword(""); setCourseType("all"); setCourseStatus("all"); void load(1); }}>重置</Button>
-            <Button onClick={() => void onCreate()}>新建课程</Button>
+            <Button onClick={openCreateForm}>新建课程</Button>
           </div>
         </CardContent>
       </Card>
@@ -140,6 +178,52 @@ export default function CoursesPage() {
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
         </>
       ) : null}
+
+      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{formMode === "create" ? "新建课程" : "编辑课程"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">课程名称</p>
+              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="请输入课程名称" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">课程类型</p>
+              <Select value={formCourseType} onValueChange={(v) => setFormCourseType(v as "一对一" | "一对多")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="一对多">一对多</SelectItem>
+                  <SelectItem value="一对一">一对一</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">状态</p>
+              <Select value={formStatus} onValueChange={(v) => setFormStatus(v as "启用" | "停用")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="启用">启用</SelectItem>
+                  <SelectItem value="停用">停用</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">定价标准（每行一条）</p>
+              <textarea
+                className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={formPricingRules}
+                onChange={(e) => setFormPricingRules(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFormOpen(false)}>取消</Button>
+            <Button onClick={() => void submitForm()}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
