@@ -566,3 +566,70 @@ def test_audit_logs_query_filter_by_operator():
     assert query_resp.status_code == 200, query_resp.text
     rows = query_resp.json()["data"]
     assert any(row.get("operator") == operator for row in rows)
+
+
+def test_rbac_role_update_writes_before_after_diff_payload():
+    role_name = f"audited_role_{uuid.uuid4().hex[:8]}"
+    initial = client.put(
+        f"/api/v1/rbac/roles/{role_name}",
+        json={"permissions": ["orders:write"]},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert initial.status_code == 200, initial.text
+
+    update = client.put(
+        f"/api/v1/rbac/roles/{role_name}",
+        json={"permissions": ["orders:write", "audit:read"]},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert update.status_code == 200, update.text
+
+    audit = client.get(
+        "/api/v1/audit-logs",
+        params={"action": "rbac.role_permissions.update", "limit": 20},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert audit.status_code == 200, audit.text
+    rows = audit.json()["data"]
+    target = next((x for x in rows if x.get("resource_id") == role_name), None)
+    assert target is not None
+    payload = target.get("payload") or {}
+    assert payload.get("before") == ["orders:write"]
+    assert payload.get("after") == ["audit:read", "orders:write"]
+    assert payload.get("diff", {}).get("added") == ["audit:read"]
+    assert payload.get("diff", {}).get("removed") == []
+
+
+def test_audit_logs_export_csv_returns_header_and_content():
+    rid = _uid("fin_csv")
+    operator = "audit_csv_user"
+    create = client.post(
+        "/api/v1/income-expense",
+        json={
+            "source_record_id": rid,
+            "item_type": "课时费",
+            "direction": "收入",
+            "amount_cents": 888,
+            "operation_date": "2026-03-22",
+            "payment_method": "微信",
+            "operator": "财务",
+            "remark": "audit csv",
+            "status": "正常",
+        },
+        headers={"x-role": "admin", "x-operator": operator},
+    )
+    assert create.status_code == 201, create.text
+
+    resp = client.get(
+        "/api/v1/audit-logs/export.csv",
+        params={"operator": operator, "limit": 20},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=\"audit-logs.csv\"" in resp.headers.get("content-disposition", "")
+
+    lines = [line for line in resp.text.strip().splitlines() if line]
+    assert len(lines) >= 2
+    assert lines[0] == "created_at,operator,role,action,resource_type,resource_id"
+    assert any(operator in line for line in lines[1:])

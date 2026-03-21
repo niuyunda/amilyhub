@@ -1,4 +1,6 @@
 import json
+import csv
+import io
 from collections import defaultdict
 from datetime import date
 import time
@@ -10,7 +12,7 @@ from typing import Any
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .db import fetch_one, fetch_rows, get_conn
@@ -174,6 +176,52 @@ def write_audit_log(
     except Exception:
         # 审计日志失败时降级，不阻断主业务流程。
         pass
+
+
+def build_audit_log_filters(
+    *,
+    action: str | None,
+    operator: str | None,
+    start_time: str | None,
+    end_time: str | None,
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if action:
+        clauses.append("action ilike %s")
+        params.append(f"{action.strip()}%")
+    if operator:
+        clauses.append("operator = %s")
+        params.append(operator.strip())
+    if start_time:
+        clauses.append("created_at >= %s::timestamptz")
+        params.append(start_time.strip())
+    if end_time:
+        clauses.append("created_at <= %s::timestamptz")
+        params.append(end_time.strip())
+    return clauses, params
+
+
+def fetch_audit_logs(
+    *,
+    action: str | None,
+    operator: str | None,
+    start_time: str | None,
+    end_time: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    clauses, params = build_audit_log_filters(action=action, operator=operator, start_time=start_time, end_time=end_time)
+    cond = f"where {' and '.join(clauses)}" if clauses else ""
+    return fetch_rows(
+        f"""
+        select operator, role, action, resource_type, resource_id, payload, created_at
+        from amilyhub.audit_logs
+        {cond}
+        order by created_at desc, id desc
+        limit %s
+        """,
+        tuple(params + [limit]),
+    )
 
 
 class PageMeta(BaseModel):
@@ -727,6 +775,8 @@ def update_rbac_role(role: str, body: RbacRoleUpdateRequest, request: Request):
         raise ApiError(422, "INVALID_PERMISSION", "存在未知权限点", details={"unknown_permissions": unknown_permissions})
 
     permissions = sorted({x.strip() for x in body.permissions if x.strip()})
+    role_permissions = refresh_role_permissions(force=True)
+    before_permissions = sorted(list(role_permissions.get(role_name, set())))
     ensure_rbac_role_permissions_table()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -742,13 +792,22 @@ def update_rbac_role(role: str, body: RbacRoleUpdateRequest, request: Request):
             conn.commit()
 
     refresh_role_permissions(force=True)
+    before_set = set(before_permissions)
+    after_set = set(permissions)
     write_audit_log(
         operator=ctx.operator,
         role=ctx.role,
-        action="rbac.roles.update",
+        action="rbac.role_permissions.update",
         resource_type="rbac_role",
         resource_id=role_name,
-        payload={"permissions": permissions},
+        payload={
+            "before": before_permissions,
+            "after": permissions,
+            "diff": {
+                "added": sorted(list(after_set - before_set)),
+                "removed": sorted(list(before_set - after_set)),
+            },
+        },
     )
     return {"ok": True, "data": {"role": role_name, "permissions": permissions}}
 
@@ -765,33 +824,41 @@ def list_audit_logs(
     require_permission(request, "audit:read")
     ensure_audit_logs_table()
 
-    clauses: list[str] = []
-    params: list[Any] = []
-    if action:
-        clauses.append("action ilike %s")
-        params.append(f"{action.strip()}%")
-    if operator:
-        clauses.append("operator = %s")
-        params.append(operator.strip())
-    if start_time:
-        clauses.append("created_at >= %s::timestamptz")
-        params.append(start_time.strip())
-    if end_time:
-        clauses.append("created_at <= %s::timestamptz")
-        params.append(end_time.strip())
-
-    cond = f"where {' and '.join(clauses)}" if clauses else ""
-    rows = fetch_rows(
-        f"""
-        select operator, role, action, resource_type, resource_id, payload, created_at
-        from amilyhub.audit_logs
-        {cond}
-        order by created_at desc, id desc
-        limit %s
-        """,
-        tuple(params + [limit]),
-    )
+    rows = fetch_audit_logs(action=action, operator=operator, start_time=start_time, end_time=end_time, limit=limit)
     return {"ok": True, "data": rows, "page": {"page": 1, "page_size": len(rows), "total": len(rows)}}
+
+
+@app.get("/api/v1/audit-logs/export.csv")
+def export_audit_logs_csv(
+    request: Request,
+    action: str | None = Query(default=None),
+    operator: str | None = Query(default=None),
+    start_time: str | None = Query(default=None),
+    end_time: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    require_permission(request, "audit:read")
+    ensure_audit_logs_table()
+    rows = fetch_audit_logs(action=action, operator=operator, start_time=start_time, end_time=end_time, limit=limit)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["created_at", "operator", "role", "action", "resource_type", "resource_id"])
+    for row in rows:
+        writer.writerow([
+            row.get("created_at") or "",
+            row.get("operator") or "",
+            row.get("role") or "",
+            row.get("action") or "",
+            row.get("resource_type") or "",
+            row.get("resource_id") or "",
+        ])
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="audit-logs.csv"'},
+    )
 
 
 @app.get("/api/v1/dashboard/summary", response_model=DashboardSummaryResponse)

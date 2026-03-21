@@ -144,6 +144,11 @@ export interface AuditLogItem {
   resourceId: string;
 }
 
+export interface RbacRoleItem {
+  role: string;
+  permissions: string[];
+}
+
 export interface DashboardData {
   kpi: DashboardKpi;
   todos: TodoItem[];

@@ -6,6 +6,7 @@ import type {
   AttendanceRecord,
   AuditLogItem,
   FinanceSummary,
+  RbacRoleItem,
   Order,
   ScheduleItem,
   Student,
@@ -54,14 +55,19 @@ function formatDateTime(v?: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function getJson<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
+function buildQueryString(query?: Record<string, string | number | undefined>): string {
   const sp = new URLSearchParams();
   if (query) {
     Object.entries(query).forEach(([k, v]) => {
       if (v !== undefined && v !== "") sp.set(k, String(v));
     });
   }
-  const url = `${API_BASE}${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
+  return sp.toString();
+}
+
+async function getJson<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
+  const qs = buildQueryString(query);
+  const url = `${API_BASE}${path}${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { cache: "no-store", headers: getOperatorHeaders() });
   if (res.status === 403) throw new Error("FORBIDDEN");
   if (!res.ok) throw new Error(`HTTP_${res.status}`);
@@ -814,6 +820,57 @@ export async function getAuditLogs(query: AuditLogQuery): Promise<ServiceResult<
         resourceId: x.resource_id ?? "-",
       })),
     );
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function exportAuditLogsCsv(query: AuditLogQuery): Promise<ServiceResult<{ filename: string; blob: Blob }>> {
+  try {
+    const qs = buildQueryString({
+      action: query.action,
+      operator: query.operator,
+      start_time: query.startTime,
+      end_time: query.endTime,
+      limit: query.limit,
+    });
+    const url = `${API_BASE}/audit-logs/export.csv${qs ? `?${qs}` : ""}`;
+    const res = await fetch(url, { headers: getOperatorHeaders() });
+    if (res.status === 403) return { kind: "forbidden", message: "无权限执行该操作" };
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+    const blob = await res.blob();
+    const contentDisposition = res.headers.get("content-disposition") || "";
+    const filename = /filename="?([^\";]+)"?/i.exec(contentDisposition)?.[1] || "audit-logs.csv";
+    return ok({ filename, blob });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function getRbacRoles(): Promise<ServiceResult<RbacRoleItem[]>> {
+  try {
+    const r = await getJson<ApiList<any>>("/rbac/roles");
+    return ok(
+      r.data.map((x) => ({
+        role: String(x.role ?? ""),
+        permissions: Array.isArray(x.permissions) ? x.permissions.map((p: unknown) => String(p)).filter(Boolean).sort() : [],
+      })),
+    );
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function updateRbacRolePermissions(role: string, permissions: string[]): Promise<ServiceResult<RbacRoleItem>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/rbac/roles/${encodeURIComponent(role)}`, { permissions });
+    return ok({
+      role: String(r.data.role ?? role),
+      permissions: Array.isArray(r.data.permissions) ? r.data.permissions.map((p: unknown) => String(p)).filter(Boolean).sort() : [],
+    });
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;

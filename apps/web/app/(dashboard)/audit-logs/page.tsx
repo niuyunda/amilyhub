@@ -7,7 +7,8 @@ import { FilterBar } from "@/components/common/filter-bar";
 import { PageHeader } from "@/components/common/page-header";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Input } from "@/components/ui/input";
-import { getAuditLogs } from "@/src/services/core-service";
+import { Button } from "@/components/ui/button";
+import { exportAuditLogsCsv, getAuditLogs } from "@/src/services/core-service";
 import type { AuditLogItem } from "@/src/types/domain";
 
 const DEFAULT_LIMIT = 50;
@@ -64,6 +65,28 @@ export default function AuditLogsPage() {
     setEndTime("");
   }
 
+  async function handleExportCsv() {
+    const result = await exportAuditLogsCsv({
+      action: action.trim() || undefined,
+      operator: operator.trim() || undefined,
+      startTime: startTime || undefined,
+      endTime: endTime || undefined,
+      limit: DEFAULT_LIMIT,
+    });
+    if (result.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
+    }
+    const url = URL.createObjectURL(result.data.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = result.data.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader title="审计日志" description="查看关键操作审计记录，支持按动作、操作者、时间范围筛选。" />
@@ -74,6 +97,10 @@ export default function AuditLogsPage() {
         <Input type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
         <Input type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
       </FilterBar>
+
+      <div>
+        <Button variant="outline" onClick={() => void handleExportCsv()}>导出CSV</Button>
+      </div>
 
       {status === "loading" ? <LoadingState text="加载审计日志中..." /> : null}
       {status === "error" ? <ErrorState message={error} onRetry={() => void load()} /> : null}

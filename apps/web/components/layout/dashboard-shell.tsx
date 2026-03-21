@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
-import { Bell, ChevronDown, LayoutDashboard, LogOut, Search, Users, UserSquare2, GraduationCap, CalendarDays, ReceiptText, WalletCards, PanelLeft, ClipboardList, BookOpen, FileClock } from "lucide-react";
+import { Bell, ChevronDown, LayoutDashboard, LogOut, Search, Users, UserSquare2, GraduationCap, CalendarDays, ReceiptText, WalletCards, PanelLeft, ClipboardList, BookOpen, FileClock, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +40,7 @@ const navIcons = {
   attendance: ClipboardList,
   courses: BookOpen,
   auditLogs: FileClock,
+  rbac: ShieldCheck,
 } as const;
 
 export function DashboardShell({ children }: { children: ReactNode }) {
