@@ -200,7 +200,7 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
         id: String(x.id),
         name: x.name ?? "-",
         courseName: x.course_name ?? "-",
-        teacherName: x.teacher_name ?? "-",
+        teacherName: String(x.teacher_name ?? "-").replace(/[\[\]"]/g, ""),
         campus: x.campus ?? "-",
         studentCount: Number(x.student_count ?? 0),
         capacity: Number(x.capacity ?? 0),
