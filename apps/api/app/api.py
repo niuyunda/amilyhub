@@ -254,6 +254,15 @@ class StudentUpsertRequest(BaseModel):
     gender: str | None = None
     birthday: date | None = None
     status: str | None = None
+    # Audit fix: new student fields
+    source: str | None = None
+    grade: str | None = None
+    school: str | None = None
+    tags: list[str] | None = None
+    follow_up_person: str | None = None
+    edu_manager: str | None = None
+    wechat_bound: bool | None = None
+    face_captured: bool | None = None
 
 
 class OrderUpsertRequest(BaseModel):
@@ -274,6 +283,15 @@ class StudentUpdateRequest(BaseModel):
     gender: str | None = None
     birthday: date | None = None
     status: str | None = None
+    # Audit fix: new student fields
+    source: str | None = None
+    grade: str | None = None
+    school: str | None = None
+    tags: list[str] | None = None
+    follow_up_person: str | None = None
+    edu_manager: str | None = None
+    wechat_bound: bool | None = None
+    face_captured: bool | None = None
 
 
 class EnrollmentRequest(BaseModel):
@@ -382,6 +400,7 @@ class ScheduleEventCreateRequest(BaseModel):
     start_time: str
     end_time: str
     room_name: str | None = None
+    room_id: int | None = None
     status: str = "planned"
     source_course_id: str | None = None
     source_class_id: str | None = None
@@ -407,6 +426,10 @@ class CourseUpsertRequest(BaseModel):
     pricing_rules: str = "-"
     pricing_items: list[dict[str, Any]] | None = None
     student_num: int = 0
+    # Audit fix: new course fields
+    validity_days: int = 0
+    description: str = ""
+    materials: list[str] | None = None
 
 
 class DashboardSummary(BaseModel):
@@ -536,6 +559,28 @@ def normalize_record_status(status: str | None) -> str:
     raise ApiError(422, "INVALID_RECORD_STATUS", "status must be 正常 or 作废")
 
 
+def ensure_rooms_table():
+    """Audit fix: ensure amilyhub.rooms table exists."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS amilyhub.rooms (
+                    id BIGSERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    campus TEXT DEFAULT '' NOT NULL,
+                    capacity INTEGER DEFAULT 0 NOT NULL,
+                    status TEXT DEFAULT 'active' NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rooms_name ON amilyhub.rooms(name)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_rooms_campus ON amilyhub.rooms(campus)")
+            conn.commit()
+
+
 def ensure_courses_table():
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -551,6 +596,7 @@ def ensure_courses_table():
                   pricing_rules text,
                   pricing_items jsonb default '[]'::jsonb,
                   student_num int default 0,
+                  price_per_hour integer default 0,
                   raw_source_json jsonb,
                   raw_json jsonb default '{}'::jsonb,
                   created_at timestamptz default now(),
@@ -560,6 +606,7 @@ def ensure_courses_table():
             )
             cur.execute("alter table amilyhub.courses add column if not exists pricing_items jsonb default '[]'::jsonb")
             cur.execute("alter table amilyhub.courses add column if not exists raw_source_json jsonb")
+            cur.execute("alter table amilyhub.courses add column if not exists price_per_hour integer default 0")
 
             # Backfill once for old rows: keep source snapshot in raw_source_json,
             # move editable pricing to dedicated pricing_items.
@@ -663,6 +710,7 @@ def ensure_schedule_events_table():
                   start_time timestamptz not null,
                   end_time timestamptz not null,
                   room_name text,
+                  room_id integer,
                   status text not null default 'planned',
                   source_course_id text,
                   source_class_id text,
@@ -673,8 +721,29 @@ def ensure_schedule_events_table():
                 )
                 """
             )
+            cur.execute("alter table amilyhub.schedule_events add column if not exists room_id integer")
             cur.execute("create index if not exists idx_schedule_events_teacher_time on amilyhub.schedule_events(teacher_name, start_time, end_time)")
             conn.commit()
+
+
+def ensure_new_tables():
+    """Audit fix: run all DB migrations for new student/class/course fields."""
+    import os as _os
+    migration_path = _os.path.join(_os.path.dirname(__file__), "migrations", "add_student_class_fields.sql")
+    if not _os.path.exists(migration_path):
+        return
+    with open(migration_path, "r") as f:
+        sql = f.read()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+    ensure_rooms_table()
+
+
+def ensure_classes_table():
+    """Audit fix: ensure amilyhub.classes table exists with proper schema."""
+    ensure_new_tables()  # run all migrations first
 
 
 def normalize_pricing_items(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -709,6 +778,67 @@ def pricing_items_to_text(items: list[dict[str, Any]]) -> str:
         else:
             lines.append(f"{name}({total:g}元{qty:g}课时)")
     return "\n".join(lines) if lines else "-"
+
+
+def calculate_cost_amount_cents(
+    source_class_id: str | None,
+    source_course_id: str | None,
+    class_time_range: str | None,
+) -> int:
+    """
+    Calculate cost_amount_cents for a rollcall attendance.
+    Looks up course price_per_hour or extracts from pricing_items,
+    then multiplies by scheduled course hours.
+    Returns 0 if no pricing info is available.
+    """
+    course_id: str | None = None
+
+    if source_class_id:
+        cls = fetch_one(
+            "select course_id from amilyhub.classes where source_class_id=%s",
+            (source_class_id,),
+        )
+        if cls:
+            course_id = cls.get("course_id")
+
+    if not course_id and source_course_id:
+        course_id = source_course_id
+
+    if not course_id:
+        return 0
+
+    course = fetch_one(
+        "select price_per_hour, pricing_items from amilyhub.courses where source_course_id=%s",
+        (course_id,),
+    )
+    if not course:
+        return 0
+
+    price_per_hour_cents = course.get("price_per_hour") or 0
+
+    # Fallback: extract from pricing_items if price_per_hour is 0
+    if price_per_hour_cents == 0:
+        pricing_items = course.get("pricing_items") or []
+        if pricing_items and isinstance(pricing_items, list):
+            first_item = pricing_items[0]
+            unit_price = float(first_item.get("price") or 0)
+            price_per_hour_cents = int(unit_price * 100)
+
+    if price_per_hour_cents == 0:
+        return 0
+
+    # Parse course hours from class_time_range (e.g., "09:00-10:00" → 1.0)
+    course_hours = 1.0
+    if class_time_range:
+        import re as _re
+        m = _re.search(r"(\d+):(\d+)-(\d+):(\d+)", str(class_time_range))
+        if m:
+            sh, sm, eh, em = int(m[1]), int(m[2]), int(m[3]), int(m[4])
+            course_hours = (eh * 60 + em - sh * 60 - sm) / 60.0
+            if course_hours <= 0:
+                course_hours = 1.0
+
+    return int(price_per_hour_cents * course_hours)
 
 
 def assert_student_exists(source_student_id: str):
@@ -914,13 +1044,20 @@ def dashboard_summary():
 def list_students(
     q: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    age_range: str | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
+    # Audit fix: run migrations on first student list call
+    ensure_new_tables()
     page, page_size, offset = pager(page, page_size)
     clauses, params = [
         "coalesce(s.name,'') not in ('Order Student','P0 Student')",
         "position('测试' in coalesce(s.name,'')) = 0",
+        "position('点名学生' in coalesce(s.name,'')) = 0",
+        "position('Order Action' in coalesce(s.name,'')) = 0",
+        "position('Renew Student' in coalesce(s.name,'')) = 0",
         "coalesce(s.phone,'') <> ''",
         "coalesce(s.phone,'') <> '13900139000'",
     ], []
@@ -937,6 +1074,19 @@ def list_students(
         else:
             clauses.append("s.status = %s")
             params.append(status)
+    if source:
+        clauses.append("s.source = %s")
+        params.append(source)
+    if age_range:
+        # age_range format: "6-12" meaning age 6 to 12 inclusive
+        parts = age_range.split("-")
+        if len(parts) == 2:
+            try:
+                lo, hi = int(parts[0].strip()), int(parts[1].strip())
+                clauses.append("extract(year from age(current_date, s.birthday))::int between %s and %s")
+                params.extend([lo, hi])
+            except ValueError:
+                pass
 
     cond = f" where {' and '.join(clauses)} " if clauses else ""
 
@@ -994,7 +1144,16 @@ def list_students(
           coalesce(nullif(s.raw_json->>'createUserName', ''), '-') as creator,
           l.checked_at as latest_class_at,
           coalesce(l.class_name, '-') as class_name,
-          greatest(coalesce(p.purchased_lessons, 0) - coalesce(c.consumed_lessons, 0), 0)::numeric as remain_hours
+          greatest(coalesce(p.purchased_lessons, 0) - coalesce(c.consumed_lessons, 0), 0)::numeric as remain_hours,
+          -- Audit fix: new student fields
+          s.source as source,
+          s.grade as grade,
+          s.school as school,
+          s.tags as tags,
+          s.follow_up_person as follow_up_person,
+          s.edu_manager as edu_manager,
+          s.wechat_bound as wechat_bound,
+          s.face_captured as face_captured
         from amilyhub.students s
         left join latest_hcf l on l.source_student_id = s.source_student_id
         left join consumed c on c.source_student_id = s.source_student_id
@@ -1015,8 +1174,13 @@ def list_students(
 
 @app.get("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
 def get_student(source_student_id: str):
+    # Audit fix: run migrations to ensure new columns exist
+    ensure_new_tables()
     row = fetch_one(
-        "select id, source_student_id, name, phone, gender, birthday, status, source_created_at from amilyhub.students where source_student_id=%s",
+        """select id, source_student_id, name, phone, gender, birthday, status, source_created_at,
+                  source, grade, school, tags, follow_up_person, edu_manager,
+                  wechat_bound, face_captured
+           from amilyhub.students where source_student_id=%s""",
         (source_student_id,),
     )
     if not row:
@@ -1026,11 +1190,14 @@ def get_student(source_student_id: str):
 
 @app.get("/api/v1/students/{source_student_id}/profile", response_model=ObjectResponse)
 def get_student_profile(source_student_id: str):
+    # Audit fix: run migrations to ensure new columns exist
+    ensure_new_tables()
     student = fetch_one(
-        """
-        select id, source_student_id, name, phone, gender, birthday, status, source_created_at
-        from amilyhub.students
-        where source_student_id=%s
+        """select id, source_student_id, name, phone, gender, birthday, status, source_created_at,
+                  source, grade, school, tags, follow_up_person, edu_manager,
+                  wechat_bound, face_captured
+           from amilyhub.students
+           where source_student_id=%s
         """,
         (source_student_id,),
     )
@@ -1196,6 +1363,8 @@ def get_student_profile(source_student_id: str):
 
 @app.post("/api/v1/students", response_model=ObjectResponse, status_code=201)
 def create_student(payload: StudentUpsertRequest):
+    # Audit fix: run migrations to ensure new columns exist
+    ensure_new_tables()
     with get_conn() as conn:
         with conn.cursor() as cur:
             source_student_id = payload.source_student_id
@@ -1227,12 +1396,15 @@ def create_student(payload: StudentUpsertRequest):
                 if hit:
                     raise ApiError(409, "STUDENT_EXISTS", f"student already exists: {hit[0]}")
 
+            # Audit fix: include new student fields in INSERT
             cur.execute(
                 """
                 insert into amilyhub.students
-                (source_student_id, name, phone, gender, birthday, status, raw_json)
-                values (%s, %s, %s, %s, %s, %s, %s::jsonb)
-                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
+                (source_student_id, name, phone, gender, birthday, status, source, grade, school, tags,
+                 follow_up_person, edu_manager, wechat_bound, face_captured, raw_json)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at,
+                          source, grade, school, tags, follow_up_person, edu_manager, wechat_bound, face_captured
                 """,
                 (
                     source_student_id,
@@ -1241,6 +1413,14 @@ def create_student(payload: StudentUpsertRequest):
                     payload.gender,
                     payload.birthday,
                     payload.status or "在读",
+                    payload.source,
+                    payload.grade,
+                    payload.school,
+                    payload.tags,
+                    payload.follow_up_person,
+                    payload.edu_manager,
+                    payload.wechat_bound if payload.wechat_bound is not None else False,
+                    payload.face_captured if payload.face_captured is not None else False,
                     json.dumps({**payload.model_dump(mode="json"), "source_student_id": source_student_id, "status": payload.status or "在读"}, ensure_ascii=False, default=str),
                 ),
             )
@@ -1252,12 +1432,20 @@ def create_student(payload: StudentUpsertRequest):
 
 @app.put("/api/v1/students/{source_student_id}", response_model=ObjectResponse)
 def update_student(source_student_id: str, payload: StudentUpdateRequest):
+    # Audit fix: run migrations and handle new student fields
+    ensure_new_tables()
     updates = payload.model_dump(mode="json", exclude_none=True)
     if not updates:
         raise ApiError(422, "VALIDATION_ERROR", "at least one updatable field is required")
 
+    # Audit fix: handle tags specially (list -> PostgreSQL TEXT[] array literal)
+    tags_val = updates.pop("tags", None)
     set_parts = [f"{field}=%s" for field in updates]
     values = list(updates.values())
+    if tags_val is not None:
+        # Format as PostgreSQL array literal: ARRAY['a','b']::text[]
+        items = ",".join(f"'{str(t).replace('\'', '\'\'')}'" for t in tags_val)
+        set_parts.append(f"tags=ARRAY[{items}]::text[]")
     set_parts.append("raw_json=%s::jsonb")
     values.append(json.dumps(updates, ensure_ascii=False, default=str))
     values.append(source_student_id)
@@ -1269,7 +1457,8 @@ def update_student(source_student_id: str, payload: StudentUpdateRequest):
                 update amilyhub.students
                 set {', '.join(set_parts)}
                 where source_student_id=%s
-                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at
+                returning id, source_student_id, name, phone, gender, birthday, status, source_created_at,
+                          source, grade, school, tags, follow_up_person, edu_manager, wechat_bound, face_captured
                 """,
                 tuple(values),
             )
@@ -1776,7 +1965,8 @@ def refund_order(source_order_id: str, request: Request, payload: OrderActionReq
                     raw_json = coalesce(raw_json, '{}'::jsonb) || %s::jsonb
                 where source_order_id=%s
                 returning id, source_order_id, source_student_id, order_type, order_state,
-                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at,
+                          coalesce(raw_json, '{}'::jsonb) as raw_json
                 """,
                 (
                     "退费",
@@ -1789,10 +1979,41 @@ def refund_order(source_order_id: str, request: Request, payload: OrderActionReq
             if not row:
                 raise ApiError(404, "ORDER_NOT_FOUND", "order not found")
             cols = [d.name for d in cur.description]
+            data = dict(zip(cols, row))
+
             if not has_order_event(cur, source_order_id, "refund"):
                 create_order_event(cur, source_order_id, "refund", event_payload, operator=operator, reason=reason)
+
+            # Create income_expense record for the refund (支出: 退费)
+            refund_amount = data.get("received_cents") or 0
+            if refund_amount > 0:
+                order_raw = data.get("raw_json") or {}
+                payment_method = order_raw.get("payment_method") if isinstance(order_raw, dict) else None
+                expense_source_id = generate_income_expense_id()
+                expense_raw = {
+                    "payment_method": payment_method or "-",
+                    "operator": operator,
+                    "remark": f"退费订单 {source_order_id}，原因: {reason}",
+                    "source_order_id": source_order_id,
+                }
+                cur.execute(
+                    """
+                    insert into amilyhub.income_expense
+                    (source_id, source_order_id, item_type, direction, amount_cents, operation_date, source_created_at, raw_json)
+                    values (%s, %s, %s, %s, %s, %s, now(), %s::jsonb)
+                    """,
+                    (
+                        expense_source_id,
+                        source_order_id,
+                        "退费",
+                        "支出",
+                        refund_amount,
+                        date.today(),
+                        json.dumps(expense_raw, ensure_ascii=False, default=str),
+                    ),
+                )
+
             conn.commit()
-    data = dict(zip(cols, row))
     write_audit_log(
         operator=ctx.operator,
         role=ctx.role,
@@ -2060,6 +2281,7 @@ def list_income_expense(
     direction: str | None = Query(default=None),
     item_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    payment_method: str | None = Query(default=None),
     operation_date_from: date | None = Query(default=None),
     operation_date_to: date | None = Query(default=None),
     page: int = Query(default=1),
@@ -2081,6 +2303,9 @@ def list_income_expense(
     if status:
         clauses.append("coalesce(nullif(raw_json->>'status',''),'正常') = %s")
         params.append(normalize_record_status(status))
+    if payment_method:
+        clauses.append("coalesce(nullif(raw_json->>'payment_method',''),'-') = %s")
+        params.append(payment_method)
     if operation_date_from:
         clauses.append("operation_date >= %s")
         params.append(operation_date_from)
@@ -2152,6 +2377,91 @@ def income_expense_summary(
     }
 
 
+@app.get("/api/v1/income-expense/export")
+def export_income_expense(
+    q: str | None = Query(default=None),
+    direction: str | None = Query(default=None),
+    item_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    payment_method: str | None = Query(default=None),
+    operation_date_from: date | None = Query(default=None),
+    operation_date_to: date | None = Query(default=None),
+):
+    clauses: list[str] = []
+    params: list[Any] = []
+    if q:
+        clauses.append(
+            "(source_id ilike %s or coalesce(item_type,'') ilike %s or coalesce(raw_json->>'operator','') ilike %s or coalesce(raw_json->>'remark','') ilike %s)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+    if direction:
+        clauses.append("direction = %s")
+        params.append(normalize_direction(direction))
+    if item_type:
+        clauses.append("item_type = %s")
+        params.append(item_type)
+    if status:
+        clauses.append("coalesce(nullif(raw_json->>'status',''),'正常') = %s")
+        params.append(normalize_record_status(status))
+    if payment_method:
+        clauses.append("coalesce(nullif(raw_json->>'payment_method',''),'-') = %s")
+        params.append(payment_method)
+    if operation_date_from:
+        clauses.append("operation_date >= %s")
+        params.append(operation_date_from)
+    if operation_date_to:
+        clauses.append("operation_date <= %s")
+        params.append(operation_date_to)
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+    rows = fetch_rows(
+        f"""
+        select
+          source_id,
+          source_order_id,
+          item_type,
+          direction,
+          amount_cents,
+          operation_date,
+          source_created_at,
+          coalesce(raw_json->>'payment_method', '-') as payment_method,
+          coalesce(raw_json->>'operator', '-') as operator,
+          coalesce(raw_json->>'remark', '') as remark,
+          coalesce(nullif(raw_json->>'status',''),'正常') as status
+        from amilyhub.income_expense
+        {cond}
+        order by operation_date desc, source_id desc
+        limit 10000
+        """,
+        tuple(params),
+    )
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "编号", "订单号", "收支类型", "方向", "金额(元)", "操作日期",
+        "支付方式", "经手人", "备注", "状态",
+    ])
+    for r in rows:
+        amount_yuan = (r.get("amount_cents") or 0) / 100.0
+        writer.writerow([
+            r.get("source_id", ""),
+            r.get("source_order_id", ""),
+            r.get("item_type", ""),
+            r.get("direction", ""),
+            f"{amount_yuan:.2f}",
+            r.get("operation_date", ""),
+            r.get("payment_method", "-"),
+            r.get("operator", "-"),
+            r.get("remark", ""),
+            r.get("status", "正常"),
+        ])
+    csv_content = output.getvalue()
+    return Response(
+        content=csv_content.encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=income_expense.csv"},
+    )
+
+
 @app.get("/api/v1/courses", response_model=ListResponse)
 def list_courses(
     q: str | None = Query(default=None),
@@ -2160,6 +2470,7 @@ def list_courses(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
+    ensure_new_tables()
     ensure_courses_table()
     page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
@@ -2185,7 +2496,11 @@ def list_courses(
           coalesce(pricing_rules,'-') as pricing_rules,
           coalesce(pricing_items,'[]'::jsonb) as pricing_items,
           coalesce(student_num,0) as active_students,
-          coalesce(status,'启用') as status
+          coalesce(status,'启用') as status,
+          -- Audit fix: new course fields
+          coalesce(validity_days,0) as validity_days,
+          coalesce(description,'') as description,
+          coalesce(materials,'{{}}'::text[]) as materials
         from amilyhub.courses
         {cond}
         order by id desc
@@ -2198,6 +2513,8 @@ def list_courses(
 
 @app.post("/api/v1/courses", response_model=ObjectResponse, status_code=201)
 def create_course(payload: CourseUpsertRequest):
+    # Audit fix: run migrations to add validity_days, description, materials columns
+    ensure_new_tables()
     ensure_courses_table()
     src = payload.source_course_id or f"LOCAL_{int(time.time()*1000)}_{random.randint(100,999)}"
     pricing_items = normalize_pricing_items(payload.pricing_items)
@@ -2206,14 +2523,18 @@ def create_course(payload: CourseUpsertRequest):
     raw["pricing_items"] = pricing_items
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Audit fix: include validity_days, description, materials in INSERT
             cur.execute(
                 """
                 insert into amilyhub.courses(
                   source_course_id, name, course_type, fee_type, status,
-                  pricing_rules, pricing_items, student_num, raw_source_json, raw_json
+                  pricing_rules, pricing_items, student_num,
+                  validity_days, description, materials,
+                  raw_source_json, raw_json
                 )
-                values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb)
-                returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
+                values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
+                returning id, source_course_id, name, course_type, fee_type, status,
+                          pricing_rules, student_num, validity_days, description, materials
                 """,
                 (
                     src,
@@ -2224,6 +2545,9 @@ def create_course(payload: CourseUpsertRequest):
                     pricing_rules,
                     json.dumps(pricing_items, ensure_ascii=False),
                     payload.student_num,
+                    payload.validity_days,
+                    payload.description,
+                    payload.materials,
                     "null",
                     json.dumps(raw, ensure_ascii=False),
                 ),
@@ -2235,6 +2559,8 @@ def create_course(payload: CourseUpsertRequest):
 
 @app.put("/api/v1/courses/{course_id}", response_model=ObjectResponse)
 def update_course(course_id: str, payload: CourseUpsertRequest):
+    # Audit fix: run migrations to add validity_days, description, materials columns
+    ensure_new_tables()
     ensure_courses_table()
     pricing_items = normalize_pricing_items(payload.pricing_items)
     pricing_rules = pricing_items_to_text(pricing_items) if pricing_items else (payload.pricing_rules or "-")
@@ -2242,6 +2568,7 @@ def update_course(course_id: str, payload: CourseUpsertRequest):
     raw["pricing_items"] = pricing_items
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Audit fix: include validity_days, description, materials in UPDATE
             cur.execute(
                 """
                 update amilyhub.courses
@@ -2253,10 +2580,14 @@ def update_course(course_id: str, payload: CourseUpsertRequest):
                   pricing_rules=%s,
                   pricing_items=%s::jsonb,
                   student_num=%s,
+                  validity_days=%s,
+                  description=%s,
+                  materials=%s,
                   raw_json=%s::jsonb,
                   updated_at=now()
                 where id=%s
-                returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
+                returning id, source_course_id, name, course_type, fee_type, status,
+                          pricing_rules, student_num, validity_days, description, materials
                 """,
                 (
                     payload.name,
@@ -2266,6 +2597,9 @@ def update_course(course_id: str, payload: CourseUpsertRequest):
                     pricing_rules,
                     json.dumps(pricing_items, ensure_ascii=False),
                     payload.student_num,
+                    payload.validity_days,
+                    payload.description,
+                    payload.materials,
                     json.dumps(raw, ensure_ascii=False),
                     int(course_id),
                 ),
@@ -2291,103 +2625,506 @@ def delete_course(course_id: str):
     return {"ok": True, "data": {"id": int(course_id)}}
 
 
-@app.get("/api/v1/classes", response_model=ListResponse)
-def list_classes(
+# ── Rooms ────────────────────────────────────────────────────────────────────
+
+class RoomCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    campus: str = ""
+    capacity: int = Field(default=0, ge=0)
+    status: str = "active"
+
+
+class RoomUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = None
+    campus: str | None = None
+    capacity: int | None = Field(default=None, ge=0)
+    status: str | None = None
+
+
+@app.get("/api/v1/rooms", response_model=ListResponse)
+def list_rooms(
     q: str | None = Query(default=None),
-    teacher_name: str | None = Query(default=None),
+    campus: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    class_type: str | None = Query(default=None),
     page: int = Query(default=1),
-    page_size: int = Query(default=20),
+    page_size: int = Query(default=50),
 ):
+    ensure_rooms_table()
     page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
     if q:
-        clauses.append("(class_name ilike %s or course_name ilike %s)")
-        params.extend([f"%{q}%", f"%{q}%"])
-    if teacher_name:
-        clauses.append("teacher_name ilike %s")
-        params.append(f"%{teacher_name}%")
+        clauses.append("name ilike %s")
+        params.append(f"%{q}%")
+    if campus:
+        clauses.append("campus = %s")
+        params.append(campus)
     if status:
         clauses.append("status = %s")
         params.append(status)
-    if class_type:
-        clauses.append("class_type = %s")
-        params.append(class_type)
-
     cond = f" where {' and '.join(clauses)} " if clauses else ""
-
-    total_row = fetch_one(
-        f"""
-        with base as (
-          select
-            coalesce(raw_json->>'classId','') as class_id,
-            coalesce(raw_json->>'className','') as class_name,
-            coalesce(raw_json->>'courseName','') as course_name,
-            coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '') as teacher_name,
-            coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
-            coalesce((raw_json->>'totalNumber')::int, 0) as total_number
-          from amilyhub.hour_cost_flows
-          where coalesce(raw_json->>'classId','') <> ''
-        ), agg as (
-          select
-            class_id,
-            max(class_name) as class_name,
-            max(course_name) as course_name,
-            max(teacher_name) as teacher_name,
-            max(total_number) as student_count,
-            case when position('一对一' in max(class_name)) > 0 or position('1v1' in lower(max(class_name))) > 0 or position('1对1' in max(class_name)) > 0 then '一对一' else '班课' end as class_type,
-            case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
-          from base
-          group by class_id
-        )
-        select count(*) as c from agg {cond}
-        """,
-        tuple(params),
-    )
-
+    total = fetch_one(f"select count(*) as c from amilyhub.rooms {cond}", tuple(params))["c"]
     rows = fetch_rows(
         f"""
-        with base as (
-          select
-            coalesce(raw_json->>'classId','') as class_id,
-            coalesce(raw_json->>'className','') as class_name,
-            coalesce(raw_json->>'courseName','') as course_name,
-            coalesce(raw_json->>'teacherNames', raw_json->>'teacherName', '') as teacher_name,
-            coalesce((raw_json->>'classEndDate')::bigint, 0) as class_end_ms,
-            coalesce((raw_json->>'totalNumber')::int, 0) as total_number
-          from amilyhub.hour_cost_flows
-          where coalesce(raw_json->>'classId','') <> ''
-        ), agg as (
-          select
-            class_id,
-            max(class_name) as class_name,
-            max(course_name) as course_name,
-            max(teacher_name) as teacher_name,
-            max(total_number) as student_count,
-            case when position('一对一' in max(class_name)) > 0 or position('1v1' in lower(max(class_name))) > 0 or position('1对1' in max(class_name)) > 0 then '一对一' else '班课' end as class_type,
-            case when max(class_end_ms) > (extract(epoch from now()) * 1000)::bigint then '开班中' else '已结班' end as status
-          from base
-          group by class_id
-        )
-        select
-          class_id as id,
-          class_name as name,
-          course_name,
-          teacher_name,
-          class_type,
-          '-'::text as campus,
-          student_count,
-          greatest(student_count, 1) as capacity,
-          status
-        from agg
+        select id, name, campus, capacity, status, created_at, updated_at
+        from amilyhub.rooms
         {cond}
         order by id desc
         limit %s offset %s
         """,
         tuple(params + [page_size, offset]),
     )
-    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total_row or {}).get('c', 0) or 0)}}
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
+
+
+@app.post("/api/v1/rooms", response_model=ObjectResponse, status_code=201)
+def create_room(payload: RoomCreateRequest, request: Request):
+    ctx = require_permission(request, "schedule:write")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.rooms (name, campus, capacity, status)
+                values (%s, %s, %s, %s)
+                returning id, name, campus, capacity, status, created_at, updated_at
+                """,
+                (payload.name, payload.campus, payload.capacity, payload.status),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator, role=ctx.role, action="rooms.create",
+        resource_type="room", resource_id=str(data.get("id", "")),
+        payload={"request": payload.model_dump(mode="json"), "result": data},
+    )
+    return {"ok": True, "data": data}
+
+
+@app.put("/api/v1/rooms/{room_id}", response_model=ObjectResponse)
+def update_room(room_id: int, payload: RoomUpdateRequest, request: Request):
+    ctx = require_permission(request, "schedule:write")
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one field is required")
+    set_clauses = [f"{k} = %s" for k in updates.keys()]
+    set_clauses.append("updated_at = now()")
+    values = list(updates.values()) + [room_id]
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                update amilyhub.rooms set {', '.join(set_clauses)}
+                where id = %s
+                returning id, name, campus, capacity, status, created_at, updated_at
+                """,
+                tuple(values),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            if not row:
+                raise ApiError(404, "ROOM_NOT_FOUND", "room not found")
+            conn.commit()
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator, role=ctx.role, action="rooms.update",
+        resource_type="room", resource_id=str(room_id),
+        payload={"request": updates, "result": data},
+    )
+    return {"ok": True, "data": data}
+
+
+@app.delete("/api/v1/rooms/{room_id}", response_model=ObjectResponse)
+def delete_room(room_id: int, request: Request):
+    ctx = require_permission(request, "schedule:write")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from amilyhub.rooms where id=%s returning id", (room_id,))
+            if cur.fetchone() is None:
+                raise ApiError(404, "ROOM_NOT_FOUND", "room not found")
+            conn.commit()
+    write_audit_log(
+        operator=ctx.operator, role=ctx.role, action="rooms.delete",
+        resource_type="room", resource_id=str(room_id),
+        payload={"room_id": room_id},
+    )
+    return {"ok": True, "data": {"id": room_id}}
+
+
+@app.get("/api/v1/classes", response_model=ListResponse)
+def list_classes(
+    q: str | None = Query(default=None),
+    teacher_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    class_type: str | None = Query(default=None),    page: int = Query(default=1),
+    page_size: int = Query(default=20),
+):
+    """
+    List classes derived from hour_cost_flows attendance data.
+    Falls back to amilyhub.classes if hour_cost_flows is empty.
+    """
+    ensure_classes_table()
+    page, page_size, offset = pager(page, page_size)
+
+    # Build WHERE clauses for hour_cost_flows based filtering
+    hcf_clauses = [
+        "h.source_class_id IS NOT NULL",
+        "coalesce(nullif(h.raw_json->>'className', ''), '') <> ''",
+        # Exclude test classes by name pattern
+        "position('测试' in coalesce(h.raw_json->>'className', '')) = 0",
+    ]
+    hcf_params = []
+
+    if q:
+        hcf_clauses.append("(coalesce(nullif(h.raw_json->>'className', ''), '') ilike %s OR coalesce(nullif(h.raw_json->>'courseName', ''), '') ilike %s)")
+        hcf_params.extend([f"%{q}%", f"%{q}%"])
+    if teacher_name:
+        hcf_clauses.append("coalesce(nullif(h.raw_json->>'teacherNames', ''), '') ilike %s")
+        hcf_params.append(f"%{teacher_name}%")
+
+    # Build WHERE clauses for final result filtering
+    res_clauses = []
+    res_params = []
+
+    if status:
+        res_clauses.append("status = %s")
+        res_params.append(status)
+    if class_type:
+        if class_type == "一对一":
+            res_clauses.append("is_one_on_one = true")
+        else:
+            res_clauses.append("is_one_on_one = false")
+
+    hcf_cond = " and ".join(hcf_clauses)
+    res_cond = f" where {' and '.join(res_clauses)} " if res_clauses else ""
+
+    # Count total distinct classes
+    total_row = fetch_one(
+        f"""
+        select count(DISTINCT h.source_class_id) as c
+        from amilyhub.hour_cost_flows h
+        where {hcf_cond}
+        """,
+        tuple(hcf_params),
+    )
+    total = int(total_row.get("c", 0) or 0)
+
+    # If no data in hour_cost_flows, fall back to amilyhub.classes
+    if total == 0:
+        clauses2, params2 = [], []
+        if q:
+            clauses2.append("(name ilike %s or coalesce(description,'') ilike %s)")
+            params2.extend([f"%{q}%", f"%{q}%"])
+        if teacher_name:
+            clauses2.append("teacher_id ilike %s")
+            params2.append(f"%{teacher_name}%")
+        if status:
+            clauses2.append("status = %s")
+            params2.append(status)
+        if class_type:
+            clauses2.append("type = %s")
+            params2.append(class_type)
+        cond2 = f" where {' and '.join(clauses2)} " if clauses2 else ""
+        total_row2 = fetch_one(f"select count(*) as c from amilyhub.classes {cond2}", tuple(params2))
+        total = int(total_row2.get("c", 0) or 0)
+
+        rows = fetch_rows(
+            f"""
+            select
+              source_class_id as id,
+              name,
+              coalesce(type, '班课') as class_type,
+              coalesce(campus, '-') as campus,
+              capacity,
+              coalesce(description, '') as description,
+              coalesce(start_date, current_date) as start_date,
+              coalesce(end_date, current_date) as end_date,
+              coalesce(status, '开班中') as status,
+              created_at,
+              updated_at,
+              '-' as course_name,
+              '-' as teacher_name,
+              0 as student_count,
+              false as is_one_on_one
+            from amilyhub.classes
+            {cond2}
+            order by source_class_id desc
+            limit %s offset %s
+            """,
+            tuple(params2 + [page_size, offset]),
+        )
+        return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
+
+    # Derive class list from hour_cost_flows
+    rows = fetch_rows(
+        f"""
+        with class_base as (
+          select
+            h.source_class_id,
+            coalesce(nullif(h.raw_json->>'className', ''), '-') as name,
+            coalesce(nullif(h.raw_json->>'courseName', ''), '-') as course_name,
+            coalesce(nullif(h.raw_json->>'classroomName', ''), '-') as classroom_name,
+            coalesce(nullif(h.raw_json->>'classroomId', ''), '-') as classroom_id,
+            -- Try raw teacherNames, fallback to teachers table join
+            coalesce(
+              nullif(h.raw_json->>'teacherNames', ''),
+              (SELECT t.name FROM amilyhub.teachers t WHERE t.source_teacher_id = h.source_teacher_id LIMIT 1),
+              '-'
+            ) as teacher_name,
+            -- Determine if 1-on-1 or small group by class name pattern (case-insensitive)
+            (
+              position('一对一' in coalesce(h.raw_json->>'className', '')) > 0
+              OR position('1对1' in coalesce(h.raw_json->>'className', '')) > 0
+              OR position('1V1' in coalesce(h.raw_json->>'className', '')) > 0
+              OR position('1V4' in coalesce(h.raw_json->>'className', '')) > 0
+              OR position('1v1' in lower(coalesce(h.raw_json->>'className', ''))) > 0
+              OR position('1v4' in lower(coalesce(h.raw_json->>'className', ''))) > 0
+              OR position('1v2' in lower(coalesce(h.raw_json->>'className', ''))) > 0
+            ) as is_one_on_one,
+            max(h.checked_at) as latest_check
+          from amilyhub.hour_cost_flows h
+          where {hcf_cond}
+          group by h.source_class_id, h.raw_json->>'className', h.raw_json->>'courseName',
+                   h.raw_json->>'teacherNames', h.raw_json->>'classroomName', h.raw_json->>'classroomId',
+                   h.source_teacher_id
+        ), student_counts as (
+          select
+            h.source_class_id,
+            count(DISTINCT h.source_student_id) as student_count
+          from amilyhub.hour_cost_flows h
+          where {hcf_cond}
+          group by h.source_class_id
+        ), class_status as (
+          select
+            h.source_class_id,
+            case
+              when max(case when s.status in ('NORMAL','在读','active','ACTIVE','LEARNING') then 1 else 0 end) = 1
+              then '开班中'
+              else '已结班'
+            end as status
+          from amilyhub.hour_cost_flows h
+          left join amilyhub.students s on s.source_student_id = h.source_student_id
+          where {hcf_cond}
+          group by h.source_class_id
+        )
+        select
+          cb.source_class_id as id,
+          cb.name,
+          cb.course_name,
+          cb.teacher_name,
+          cb.classroom_name,
+          coalesce(sc.student_count, 0) as student_count,
+          coalesce(cs.status, '开班中') as status,
+          case when cb.is_one_on_one then '一对一' else '班课' end as class_type,
+          0 as capacity,
+          cb.source_class_id as source_class_id,
+          '-' as campus,
+          '-' as description,
+          current_date as start_date,
+          current_date as end_date,
+          now() as created_at,
+          now() as updated_at
+        from class_base cb
+        left join student_counts sc on sc.source_class_id = cb.source_class_id
+        left join class_status cs on cs.source_class_id = cb.source_class_id
+        {res_cond}
+        order by cb.source_class_id desc
+        limit %s offset %s
+        """,
+        tuple(hcf_params + res_params + [page_size, offset]),
+    )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
+
+
+class ClassCreateRequest(BaseModel):
+    """Audit fix: Pydantic model for creating a class."""
+    source_class_id: int
+    name: str
+    type: str = "班课"
+    course_id: str | None = None
+    teacher_id: str | None = None
+    campus: str = ""
+    capacity: int = 0
+    description: str = ""
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str = "开班中"
+
+
+class ClassUpdateRequest(BaseModel):
+    """Audit fix: Pydantic model for updating a class."""
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = None
+    type: str | None = None
+    course_id: str | None = None
+    teacher_id: str | None = None
+    campus: str | None = None
+    capacity: int | None = None
+    description: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str | None = None
+
+
+@app.post("/api/v1/classes", response_model=ObjectResponse, status_code=201)
+def create_class(payload: ClassCreateRequest):
+    """Audit fix: create a new class in amilyhub.classes."""
+    ensure_classes_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.classes where source_class_id=%s", (payload.source_class_id,))
+            if cur.fetchone():
+                raise ApiError(409, "CLASS_EXISTS", "class already exists")
+            cur.execute(
+                """
+                insert into amilyhub.classes
+                (source_class_id, name, type, course_id, teacher_id, campus, capacity, description, start_date, end_date, status)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                returning id, source_class_id, name, type, course_id, teacher_id, campus, capacity, description, start_date, end_date, status, created_at, updated_at
+                """,
+                (
+                    payload.source_class_id,
+                    payload.name,
+                    payload.type,
+                    payload.course_id,
+                    payload.teacher_id,
+                    payload.campus,
+                    payload.capacity,
+                    payload.description,
+                    payload.start_date,
+                    payload.end_date,
+                    payload.status,
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.put("/api/v1/classes/{class_id}", response_model=ObjectResponse)
+def update_class(class_id: int, payload: ClassUpdateRequest):
+    """Audit fix: update an existing class."""
+    ensure_classes_table()
+    updates = payload.model_dump(mode="json", exclude_none=True)
+    if not updates:
+        raise ApiError(422, "VALIDATION_ERROR", "at least one field is required")
+    updates["updated_at"] = "now()"
+    set_parts = [f"{field}=%s" for field in updates]
+    values = list(updates.values())
+    values.append(class_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                update amilyhub.classes
+                set {', '.join(set_parts)}
+                where source_class_id=%s
+                returning id, source_class_id, name, type, course_id, teacher_id, campus, capacity, description, start_date, end_date, status, created_at, updated_at
+                """,
+                tuple(values),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "CLASS_NOT_FOUND", "class not found")
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.delete("/api/v1/classes/{class_id}", response_model=ObjectResponse)
+def delete_class(class_id: int):
+    """Audit fix: delete a class."""
+    ensure_classes_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from amilyhub.classes where source_class_id=%s returning source_class_id", (class_id,))
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "CLASS_NOT_FOUND", "class not found")
+            conn.commit()
+    return {"ok": True, "data": {"source_class_id": row[0]}}
+
+
+class ClassStudentAddRequest(BaseModel):
+    """Audit fix: add a student to a class."""
+    student_id: str
+
+
+@app.post("/api/v1/classes/{class_id}/students", response_model=ObjectResponse)
+def add_student_to_class(class_id: int, payload: ClassStudentAddRequest):
+    """Audit fix: add a student to a class."""
+    ensure_classes_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.classes where source_class_id=%s", (class_id,))
+            if not cur.fetchone():
+                raise ApiError(404, "CLASS_NOT_FOUND", "class not found")
+            cur.execute("select 1 from amilyhub.students where source_student_id=%s", (payload.student_id,))
+            if not cur.fetchone():
+                raise ApiError(404, "STUDENT_NOT_FOUND", "student not found")
+            # Store student-class association in raw_json of an enrollments table or in classes table
+            # For simplicity, we track via a dedicated enrollments-like approach stored in class's raw_json
+            # Check if already enrolled by looking at existing entries
+            cur.execute(
+                """
+                select raw_json from amilyhub.classes where source_class_id=%s
+                """,
+                (class_id,),
+            )
+            existing = cur.fetchone()
+            enrolled_students = []
+            if existing and existing[0]:
+                import json as _json
+                data = existing[0] if isinstance(existing[0], dict) else _json.loads(existing[0])
+                enrolled_students = data.get("enrolled_students", [])
+            if payload.student_id not in enrolled_students:
+                enrolled_students.append(payload.student_id)
+                cur.execute(
+                    """
+                    update amilyhub.classes
+                    set raw_json=raw_json || %s::jsonb, updated_at=now()
+                    where source_class_id=%s
+                    returning source_class_id
+                    """,
+                    (json.dumps({"enrolled_students": enrolled_students}, ensure_ascii=False), class_id),
+                )
+            conn.commit()
+    return {"ok": True, "data": {"class_id": class_id, "student_id": payload.student_id}}
+
+
+@app.delete("/api/v1/classes/{class_id}/students/{student_id}", response_model=ObjectResponse)
+def remove_student_from_class(class_id: int, student_id: str):
+    """Audit fix: remove a student from a class."""
+    ensure_classes_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select 1 from amilyhub.classes where source_class_id=%s", (class_id,))
+            if not cur.fetchone():
+                raise ApiError(404, "CLASS_NOT_FOUND", "class not found")
+            cur.execute(
+                """
+                select raw_json from amilyhub.classes where source_class_id=%s
+                """,
+                (class_id,),
+            )
+            existing = cur.fetchone()
+            if existing and existing[0]:
+                import json as _json
+                data = existing[0] if isinstance(existing[0], dict) else _json.loads(existing[0])
+                enrolled_students = [s for s in data.get("enrolled_students", []) if s != student_id]
+                cur.execute(
+                    """
+                    update amilyhub.classes
+                    set raw_json=raw_json || %s::jsonb, updated_at=now()
+                    where source_class_id=%s
+                    """,
+                    (json.dumps({"enrolled_students": enrolled_students}, ensure_ascii=False), class_id),
+                )
+            conn.commit()
+    return {"ok": True, "data": {"class_id": class_id, "student_id": student_id}}
 
 
 @app.get("/api/v1/classes/{class_id}/profile", response_model=ObjectResponse)
@@ -2714,6 +3451,23 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
         hit = fetch_one("select source_student_id from amilyhub.students where name=%s order by id desc limit 1", (row.get("student_name"),))
         student_id = (hit or {}).get("source_student_id")
 
+    # Extract class/course IDs from rollcall raw_json
+    source_class_id = None
+    source_course_id = None
+    if isinstance(raw, dict):
+        source_class_id = raw.get("classId") or raw.get("class_id")
+        source_course_id = raw.get("courseId") or raw.get("course_id")
+
+    # Calculate cost_amount_cents based on course pricing
+    # For "正常" and "旷课" → charge; for "请假" → cost stays 0
+    cost_amount_cents = 0
+    if cost_hours > 0:
+        cost_amount_cents = calculate_cost_amount_cents(
+            source_class_id=source_class_id,
+            source_course_id=source_course_id,
+            class_time_range=row.get("class_time_range"),
+        )
+
     flow_source_id = f"ROLLCALL_{source_id}"
     flow_raw = {
         "from": "rollcall_confirm",
@@ -2723,8 +3477,11 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
         "teacherNames": row.get("teacher_name"),
         "studentName": row.get("student_name"),
         "studentId": student_id,
+        "classId": source_class_id,
+        "courseId": source_course_id,
         "checkedPurchaseLessons": cost_hours,
         "checkedGiftLessons": 0,
+        "costAmountCents": cost_amount_cents,
         "status": status,
         "operator": operator,
         "reason": reason,
@@ -2737,24 +3494,28 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
                 """
                 insert into amilyhub.hour_cost_flows
                 (source_id, source_student_id, source_teacher_id, source_class_id, source_course_id, cost_type, source_type, cost_hours, cost_amount_cents, checked_at, raw_json)
-                values (%s, %s, null, null, null, %s, %s, %s, %s, now(), %s::jsonb)
+                values (%s, %s, null, %s, %s, %s, %s, %s, %s, now(), %s::jsonb)
                 on conflict (source_id) do update
                   set source_student_id = excluded.source_student_id,
+                      source_class_id = excluded.source_class_id,
+                      source_course_id = excluded.source_course_id,
                       cost_type = excluded.cost_type,
                       source_type = excluded.source_type,
                       cost_hours = excluded.cost_hours,
                       cost_amount_cents = excluded.cost_amount_cents,
                       raw_json = excluded.raw_json,
                       checked_at = now()
-                returning source_id, source_student_id, cost_hours, checked_at
+                returning source_id, source_student_id, cost_hours, cost_amount_cents, checked_at
                 """,
                 (
                     flow_source_id,
                     student_id,
+                    source_class_id,
+                    source_course_id,
                     cost_type,
                     "ROLLCALL",
                     cost_hours,
-                    0,
+                    cost_amount_cents,
                     json.dumps(flow_raw, ensure_ascii=False, default=str),
                 ),
             )
@@ -2769,6 +3530,7 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
             "rollcall": source_id,
             "status": status,
             "hour_cost_flow": dict(zip(flow_cols, flow)),
+            "cost_amount_cents": cost_amount_cents,
             "idempotent_key": flow_source_id,
         },
     }
@@ -2800,6 +3562,7 @@ def list_schedule_events(
           class_name,
           teacher_name,
           room_name,
+          room_id,
           status,
           start_time,
           end_time,
@@ -2820,6 +3583,7 @@ def list_schedule_events(
 def create_schedule_event(payload: ScheduleEventCreateRequest, request: Request):
     ctx = require_permission(request, "schedule:write")
     ensure_schedule_events_table()
+    ensure_rooms_table()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2835,13 +3599,48 @@ def create_schedule_event(payload: ScheduleEventCreateRequest, request: Request)
             if cur.fetchone():
                 raise ApiError(409, "SCHEDULE_CONFLICT", "teacher already has a schedule at this time")
 
+            # Room conflict check
+            if payload.room_id:
+                cur.execute(
+                    """
+                    select 1
+                    from amilyhub.schedule_events
+                    where room_id = %s
+                      and tstzrange(start_time, end_time, '[)') && tstzrange(%s::timestamptz, %s::timestamptz, '[)')
+                    limit 1
+                    """,
+                    (payload.room_id, payload.start_time, payload.end_time),
+                )
+                if cur.fetchone():
+                    raise ApiError(409, "ROOM_CONFLICT", "room is already booked at this time")
+
+                # Capacity validation: check room capacity vs class capacity
+                cur.execute(
+                    "select capacity from amilyhub.rooms where id=%s",
+                    (payload.room_id,),
+                )
+                room_row = cur.fetchone()
+                if not room_row:
+                    raise ApiError(404, "ROOM_NOT_FOUND", "room not found")
+                room_capacity = room_row["capacity"] or 0
+                if payload.source_class_id:
+                    cur.execute(
+                        "select capacity from amilyhub.classes where source_class_id=%s",
+                        (payload.source_class_id,),
+                    )
+                    class_row = cur.fetchone()
+                    if class_row and class_row["capacity"] and room_capacity > 0:
+                        if class_row["capacity"] > room_capacity:
+                            raise ApiError(409, "ROOM_CAPACITY_EXCEEDED",
+                                f"class capacity ({class_row['capacity']}) exceeds room capacity ({room_capacity})")
+
             raw = payload.model_dump(mode="json")
             cur.execute(
                 """
                 insert into amilyhub.schedule_events
-                (class_name, teacher_name, start_time, end_time, room_name, status, source_course_id, source_class_id, note, raw_json)
-                values (%s,%s,%s::timestamptz,%s::timestamptz,%s,%s,%s,%s,%s,%s::jsonb)
-                returning id, class_name, teacher_name, start_time, end_time, room_name, status, source_course_id, source_class_id, note
+                (class_name, teacher_name, start_time, end_time, room_name, room_id, status, source_course_id, source_class_id, note, raw_json)
+                values (%s,%s,%s::timestamptz,%s::timestamptz,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                returning id, class_name, teacher_name, start_time, end_time, room_name, room_id, status, source_course_id, source_class_id, note
                 """,
                 (
                     payload.class_name,
@@ -2849,6 +3648,7 @@ def create_schedule_event(payload: ScheduleEventCreateRequest, request: Request)
                     payload.start_time,
                     payload.end_time,
                     payload.room_name,
+                    payload.room_id,
                     payload.status,
                     payload.source_course_id,
                     payload.source_class_id,
@@ -2869,6 +3669,112 @@ def create_schedule_event(payload: ScheduleEventCreateRequest, request: Request)
         payload={"request": payload.model_dump(mode="json"), "result": data},
     )
     return {"ok": True, "data": data}
+
+
+@app.put("/api/v1/schedule-events/{event_id}", response_model=ObjectResponse)
+def update_schedule_event(event_id: int, payload: ScheduleEventCreateRequest, request: Request):
+    ctx = require_permission(request, "schedule:write")
+    ensure_schedule_events_table()
+    ensure_rooms_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Check teacher conflict with other events
+            cur.execute(
+                """
+                select 1
+                from amilyhub.schedule_events
+                where id != %s
+                  and teacher_name = %s
+                  and tstzrange(start_time, end_time, '[)') && tstzrange(%s::timestamptz, %s::timestamptz, '[)')
+                limit 1
+                """,
+                (event_id, payload.teacher_name, payload.start_time, payload.end_time),
+            )
+            if cur.fetchone():
+                raise ApiError(409, "SCHEDULE_CONFLICT", "teacher already has a schedule at this time")
+
+            # Room conflict check
+            if payload.room_id:
+                cur.execute(
+                    """
+                    select 1
+                    from amilyhub.schedule_events
+                    where id != %s
+                      and room_id = %s
+                      and tstzrange(start_time, end_time, '[)') && tstzrange(%s::timestamptz, %s::timestamptz, '[)')
+                    limit 1
+                    """,
+                    (event_id, payload.room_id, payload.start_time, payload.end_time),
+                )
+                if cur.fetchone():
+                    raise ApiError(409, "ROOM_CONFLICT", "room is already booked at this time")
+
+                # Capacity validation
+                cur.execute("select capacity from amilyhub.rooms where id=%s", (payload.room_id,))
+                room_row = cur.fetchone()
+                if not room_row:
+                    raise ApiError(404, "ROOM_NOT_FOUND", "room not found")
+                room_capacity = room_row["capacity"] or 0
+                if payload.source_class_id:
+                    cur.execute(
+                        "select capacity from amilyhub.classes where source_class_id=%s",
+                        (payload.source_class_id,),
+                    )
+                    class_row = cur.fetchone()
+                    if class_row and class_row["capacity"] and room_capacity > 0:
+                        if class_row["capacity"] > room_capacity:
+                            raise ApiError(409, "ROOM_CAPACITY_EXCEEDED",
+                                f"class capacity ({class_row['capacity']}) exceeds room capacity ({room_capacity})")
+
+            raw = payload.model_dump(mode="json")
+            cur.execute(
+                """
+                update amilyhub.schedule_events
+                set class_name=%s, teacher_name=%s, start_time=%s::timestamptz, end_time=%s::timestamptz,
+                    room_name=%s, room_id=%s, status=%s, source_course_id=%s, source_class_id=%s,
+                    note=%s, raw_json=%s::jsonb, updated_at=now()
+                where id=%s
+                returning id, class_name, teacher_name, start_time, end_time, room_name, room_id, status, source_course_id, source_class_id, note
+                """,
+                (
+                    payload.class_name, payload.teacher_name, payload.start_time, payload.end_time,
+                    payload.room_name, payload.room_id, payload.status,
+                    payload.source_course_id, payload.source_class_id, payload.note,
+                    json.dumps(raw, ensure_ascii=False, default=str), event_id,
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            if not row:
+                raise ApiError(404, "SCHEDULE_EVENT_NOT_FOUND", "schedule event not found")
+            conn.commit()
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator, role=ctx.role, action="schedule.update",
+        resource_type="schedule_event", resource_id=str(event_id),
+        payload={"request": payload.model_dump(mode="json"), "result": data},
+    )
+    return {"ok": True, "data": data}
+
+
+@app.delete("/api/v1/schedule-events/{event_id}", response_model=ObjectResponse)
+def delete_schedule_event(event_id: int, request: Request):
+    ctx = require_permission(request, "schedule:write")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from amilyhub.schedule_events where id=%s returning id",
+                (event_id,),
+            )
+            if cur.fetchone() is None:
+                raise ApiError(404, "SCHEDULE_EVENT_NOT_FOUND", "schedule event not found")
+            conn.commit()
+    write_audit_log(
+        operator=ctx.operator, role=ctx.role, action="schedule.delete",
+        resource_type="schedule_event", resource_id=str(event_id),
+        payload={"event_id": event_id},
+    )
+    return {"ok": True, "data": {"id": event_id}}
 
 
 @app.get("/api/v1/schedules", response_model=ListResponse)

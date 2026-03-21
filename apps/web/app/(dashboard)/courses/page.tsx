@@ -60,6 +60,9 @@ export default function CoursesPage() {
   const [formName, setFormName] = useState("");
   const [formCourseType, setFormCourseType] = useState<"一对一" | "一对多">("一对多");
   const [formStatus, setFormStatus] = useState<"启用" | "停用">("启用");
+  const [formValidityDays, setFormValidityDays] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formMaterials, setFormMaterials] = useState("");
   const [pricingRows, setPricingRows] = useState<PriceRow[]>([{ name: "单价", quantity: 1, totalPrice: 130 }]);
 
   const load = useCallback(async (nextPage: number) => {
@@ -94,6 +97,9 @@ export default function CoursesPage() {
     setFormName("");
     setFormCourseType("一对多");
     setFormStatus("启用");
+    setFormValidityDays("");
+    setFormDescription("");
+    setFormMaterials("");
     setPricingRows([{ name: "单价", quantity: 1, totalPrice: 130 }]);
     setFormOpen(true);
   };
@@ -104,6 +110,9 @@ export default function CoursesPage() {
     setFormName(row.courseName);
     setFormCourseType(row.courseType);
     setFormStatus(row.status);
+    setFormValidityDays(row.validityDays != null ? String(row.validityDays) : "");
+    setFormDescription(row.description ?? "");
+    setFormMaterials(Array.isArray(row.materials) ? row.materials.join(", ") : "");
     const parsed = row.pricingItems?.length ? row.pricingItems : parsePricingRules(row.pricingRules || "");
     setPricingRows(parsed.length ? parsed : [{ name: "单价", quantity: 1, totalPrice: 130 }]);
     setFormOpen(true);
@@ -113,6 +122,8 @@ export default function CoursesPage() {
     if (!formName.trim()) return;
     const items = pricingRows.filter((x) => x.name.trim()).slice(0, 10);
     const pricingRules = toPricingRulesText(items);
+    const materials = formMaterials.trim() ? formMaterials.split(",").map((m) => m.trim()).filter(Boolean) : undefined;
+    const validityDays = formValidityDays ? Math.max(0, Number(formValidityDays)) : undefined;
 
     if (formMode === "create") {
       await createCourse({
@@ -123,6 +134,9 @@ export default function CoursesPage() {
         pricingRules,
         pricingItems: items,
         studentNum: 0,
+        validityDays,
+        description: formDescription.trim() || undefined,
+        materials,
       });
       setFormOpen(false);
       void load(1);
@@ -138,6 +152,9 @@ export default function CoursesPage() {
       pricingRules,
       pricingItems: items,
       studentNum: 0,
+      validityDays,
+      description: formDescription.trim() || undefined,
+      materials,
     });
     setFormOpen(false);
     void load(page);
@@ -154,6 +171,9 @@ export default function CoursesPage() {
     { key: "courseType", title: "类型" },
     { key: "chargeType", title: "收费方式" },
     { key: "pricingRules", title: "定价标准", render: (row) => <pre className="whitespace-pre-wrap text-xs leading-5">{row.pricingRules}</pre> },
+    { key: "validityDays", title: "有效期(天)" },
+    { key: "description", title: "简介", render: (row) => <span className="text-xs">{row.description ?? "-"}</span> },
+    { key: "materials", title: "教材", render: (row) => Array.isArray(row.materials) && row.materials.length ? <span className="text-xs">{row.materials.join(", ")}</span> : <span className="text-xs text-muted-foreground">-</span> },
     { key: "activeStudents", title: "在读学员数" },
     { key: "status", title: "启用状态" },
     {
@@ -244,6 +264,18 @@ export default function CoursesPage() {
                   <SelectItem value="停用">停用</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">有效期（天）</p>
+              <Input type="number" min="0" value={formValidityDays} onChange={(e) => setFormValidityDays(e.target.value)} placeholder="课程有效期天数（可选）" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">课程简介</p>
+              <Input value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="课程简介（可选）" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">教材（多个用逗号分隔）</p>
+              <Input value={formMaterials} onChange={(e) => setFormMaterials(e.target.value)} placeholder="教材名称，多个用逗号分隔（可选）" />
             </div>
 
             <div className="space-y-2">

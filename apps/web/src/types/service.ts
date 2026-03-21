@@ -16,6 +16,8 @@ export interface ListQuery extends PageRequest {
 
 export interface StudentQuery extends ListQuery {
   status?: "在读" | "停课" | "结课";
+  source?: string;
+  ageRange?: string;
 }
 
 export interface TeacherQuery extends ListQuery {
@@ -41,6 +43,7 @@ export interface OrderQuery extends ListQuery {
 
 export interface FinanceQuery extends ListQuery {
   direction?: "收入" | "支出";
+  paymentMethod?: string;
 }
 
 export interface ScheduleQuery extends ListQuery {

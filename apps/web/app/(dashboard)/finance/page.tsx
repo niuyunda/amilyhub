@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createFinanceRecord, getFinanceRecords, updateFinanceRecord, voidFinanceRecord } from "@/src/services/core-service";
+import { createFinanceRecord, exportIncomeExpenseCsv, getFinanceRecords, updateFinanceRecord, voidFinanceRecord } from "@/src/services/core-service";
 import type { FinanceRecord, FinanceSummary } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
@@ -55,6 +55,7 @@ export default function FinancePage() {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
   const [directionFilter, setDirectionFilter] = useState<"all" | "收入" | "支出">("all");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<"all" | FinanceRecord["paymentMethod"]>("all");
   const [form, setForm] = useState<FinanceForm>(defaultForm);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -66,6 +67,7 @@ export default function FinancePage() {
       pageSize: PAGE_SIZE,
       keyword: keyword || undefined,
       direction: directionFilter === "all" ? undefined : directionFilter,
+      paymentMethod: paymentMethodFilter === "all" ? undefined : paymentMethodFilter,
     });
     if (result.kind === "forbidden") {
       setStatus("forbidden");
@@ -164,6 +166,27 @@ export default function FinancePage() {
     }
   }
 
+  async function handleExport() {
+    const result = await exportIncomeExpenseCsv({
+      q: keyword || undefined,
+      direction: directionFilter === "all" ? undefined : directionFilter,
+      paymentMethod: paymentMethodFilter === "all" ? undefined : paymentMethodFilter,
+    });
+    if (result.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
+    }
+    if (result.kind === "ok") {
+      const url = URL.createObjectURL(result.data.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("收支明细已导出 CSV");
+    }
+  }
+
   const columns: Array<ColumnDef<FinanceRecord>> = useMemo(
     () => [
       { key: "serialNo", title: "流水号" },
@@ -220,7 +243,7 @@ export default function FinancePage() {
       <PageHeader
         title="收支明细"
         description="管理财务台账，支持收入、支出与净收入统计。"
-        actions={<Button onClick={resetForm}>新增收支</Button>}
+        actions={<><Button onClick={resetForm}>新增收支</Button><Button variant="outline" onClick={() => void handleExport()}>导出 CSV</Button></>}
       />
 
       <Card>
@@ -318,6 +341,7 @@ export default function FinancePage() {
         onReset={() => {
           setKeyword("");
           setDirectionFilter("all");
+          setPaymentMethodFilter("all");
           void load(1);
         }}
         onQuery={() => void load(1)}
@@ -334,6 +358,23 @@ export default function FinancePage() {
               <SelectItem value="all">全部方向</SelectItem>
               <SelectItem value="收入">收入</SelectItem>
               <SelectItem value="支出">支出</SelectItem>
+            </SelectContent>
+          </Select>
+        </FilterField>
+        <FilterField label="支付方式">
+          <Select
+            value={paymentMethodFilter}
+            onValueChange={(value: "all" | FinanceRecord["paymentMethod"]) => setPaymentMethodFilter(value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="全部方式" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部方式</SelectItem>
+              <SelectItem value="微信">微信</SelectItem>
+              <SelectItem value="支付宝">支付宝</SelectItem>
+              <SelectItem value="现金">现金</SelectItem>
+              <SelectItem value="转账">转账</SelectItem>
             </SelectContent>
           </Select>
         </FilterField>

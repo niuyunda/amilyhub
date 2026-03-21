@@ -3,6 +3,7 @@ export type NavKey =
   | "students"
   | "teachers"
   | "classes"
+  | "rooms"
   | "schedules"
   | "orders"
   | "finance"
@@ -23,6 +24,7 @@ export const coreNavItems: NavItem[] = [
   { key: "students", label: "学员管理", href: "/students", desc: "学员生命周期管理" },
   { key: "teachers", label: "老师管理", href: "/teachers", desc: "老师档案与启停管理" },
   { key: "classes", label: "班级管理", href: "/classes", desc: "班级容量与成员管理" },
+  { key: "rooms", label: "教室管理", href: "/rooms", desc: "校区教室资源管理" },
   { key: "schedules", label: "课表管理", href: "/schedules", desc: "排课与教师时间安排" },
   { key: "orders", label: "订单管理", href: "/orders", desc: "报名续费退费订单管理" },
   { key: "finance", label: "收支管理", href: "/finance", desc: "收支台账与统计汇总" },

@@ -72,6 +72,9 @@ export default function StudentsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
+  const [source, setSource] = useState("");
+  const [ageMin, setAgeMin] = useState("");
+  const [ageMax, setAgeMax] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "在读" | "停课" | "结课">("all");
   const [selected, setSelected] = useState<Student | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<StudentProfileLite | null>(null);
@@ -108,16 +111,22 @@ export default function StudentsPage() {
 
   const load = useCallback(async (
     nextPage: number,
-    overrides?: { keyword?: string; statusFilter?: "all" | "在读" | "停课" | "结课" },
+    overrides?: { keyword?: string; statusFilter?: "all" | "在读" | "停课" | "结课"; source?: string; ageRange?: string },
   ) => {
     setStatus("loading");
     const q = overrides?.keyword ?? keyword;
     const sf = overrides?.statusFilter ?? statusFilter;
+    const src = overrides?.source ?? source;
+    const ageRng = overrides?.ageRange ?? (
+      ageMin || ageMax ? `${ageMin || "0"}-${ageMax || "99"}` : undefined
+    );
     const result = await getStudents({
       page: nextPage,
       pageSize: PAGE_SIZE,
       keyword: q || undefined,
       status: sf === "all" ? undefined : sf,
+      source: src || undefined,
+      ageRange: ageRng,
     });
     if (result.kind === "forbidden") {
       setStatus("forbidden");
@@ -128,7 +137,7 @@ export default function StudentsPage() {
     setPage(result.data.page);
     await loadStatusStats(q);
     setStatus("ready");
-  }, [keyword, statusFilter, loadStatusStats]);
+  }, [keyword, statusFilter, source, ageMin, ageMax, loadStatusStats]);
 
   useEffect(() => {
     load(1).catch((e: unknown) => {
@@ -173,6 +182,23 @@ export default function StudentsPage() {
         render: (row) => (row.remainHours != null ? `${row.remainHours} 课时` : "-"),
       },
       { key: "consultant", title: "跟进人" },
+      { key: "source", title: "来源", render: (row) => row.source || "-" },
+      { key: "grade", title: "年级", render: (row) => row.grade || "-" },
+      { key: "school", title: "学校", render: (row) => row.school || "-" },
+      { key: "tags", title: "标签", render: (row) => {
+        const tags = Array.isArray(row.tags) ? row.tags : [];
+        if (!tags.length) return <span className="text-muted-foreground">-</span>;
+        return (
+          <div className="flex flex-wrap gap-1">
+            {tags.slice(0, 3).map((tag, i) => (
+              <Badge key={i} variant="secondary" className="text-xs">{tag}</Badge>
+            ))}
+            {tags.length > 3 ? <Badge variant="secondary" className="text-xs">+{tags.length - 3}</Badge> : null}
+          </div>
+        );
+      }},
+      { key: "followUpPerson", title: "跟进人", render: (row) => row.followUpPerson || "-" },
+      { key: "eduManager", title: "教务", render: (row) => row.eduManager || "-" },
       { key: "creator", title: "创建人" },
       { key: "createdAt", title: "创建时间", render: (row) => formatDateCn(row.createdAt) },
     ],
@@ -361,13 +387,26 @@ export default function StudentsPage() {
       <FilterBar
         onReset={() => {
           setKeyword("");
+          setSource("");
+          setAgeMin("");
+          setAgeMax("");
           setStatusFilter("all");
-          void load(1, { keyword: "", statusFilter: "all" });
+          void load(1, { keyword: "", statusFilter: "all", source: "" });
         }}
         onQuery={() => void load(1)}
       >
         <FilterField label="关键词（姓名/手机号）">
           <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="请输入学员姓名/手机号" />
+        </FilterField>
+        <FilterField label="来源">
+          <Input value={source} onChange={(e) => setSource(e.target.value)} placeholder="来源渠道" />
+        </FilterField>
+        <FilterField label="年龄范围">
+          <div className="flex items-center gap-1">
+            <Input type="number" min="0" placeholder="最小" className="w-16" value={ageMin} onChange={(e) => setAgeMin(e.target.value)} />
+            <span className="text-muted-foreground">-</span>
+            <Input type="number" min="0" placeholder="最大" className="w-16" value={ageMax} onChange={(e) => setAgeMax(e.target.value)} />
+          </div>
         </FilterField>
       </FilterBar>
 

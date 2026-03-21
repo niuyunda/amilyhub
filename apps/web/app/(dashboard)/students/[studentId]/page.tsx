@@ -23,6 +23,17 @@ type ProfileData = {
     birthday: string | null;
     status: string;
     source_created_at: string | null;
+    class_name?: string;
+    consultant?: string;
+    source?: string | null;
+    grade?: string | null;
+    school?: string | null;
+    tags?: string[];
+    follow_up_person?: string | null;
+    edu_manager?: string | null;
+    wechat_bound?: boolean;
+    face_captured?: boolean;
+    age?: number | null;
   };
   courses: Array<{
     order_no: string;
@@ -279,6 +290,17 @@ export default function StudentDetailPage() {
               <Kpi label="欠费总额" value={`¥${summary.arrearsYuan.toFixed(2)}`} />
               <Kpi label="订单数" value={`${orders.length}`} />
               <Kpi label="创建时间" value={formatCnDateTime(profile.student.source_created_at)} />
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4 lg:grid-cols-8">
+              <Kpi label="来源" value={profile.student.source ?? "-"} />
+              <Kpi label="年级" value={profile.student.grade ?? "-"} />
+              <Kpi label="学校" value={profile.student.school ?? "-"} />
+              <Kpi label="标签" value={Array.isArray(profile.student.tags) ? profile.student.tags.join(", ") || "-" : "-"} />
+              <Kpi label="跟进人" value={profile.student.follow_up_person ?? "-"} />
+              <Kpi label="教务" value={profile.student.edu_manager ?? "-"} />
+              <Kpi label="微信绑定" value={profile.student.wechat_bound ? "是" : "否"} />
+              <Kpi label="人脸采集" value={profile.student.face_captured ? "是" : "否"} />
             </div>
           </section>
 

@@ -39,6 +39,14 @@ export interface Student {
   birthday: string;
   creator: string;
   createdAt: string;
+  source?: string;
+  grade?: string;
+  school?: string;
+  tags?: string[];
+  followUpPerson?: string;
+  eduManager?: string;
+  wechatBound?: boolean;
+  faceCaptured?: boolean;
 }
 
 export interface Teacher {
@@ -63,6 +71,12 @@ export interface ClassRoom {
   capacity: number;
   classType: "班课" | "一对一";
   status: "开班中" | "已结班";
+  sourceClassId?: string;
+  courseId?: string;
+  teacherId?: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface CourseItem {
@@ -74,6 +88,9 @@ export interface CourseItem {
   pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   activeStudents: number;
   status: "启用" | "停用";
+  validityDays?: number;
+  description?: string;
+  materials?: string[];
 }
 
 export interface Order {
@@ -118,6 +135,30 @@ export interface ScheduleItem {
   roomName: string;
   studentName: string;
   status: string;
+}
+
+export interface ScheduleEvent {
+  id: number;
+  className: string;
+  teacherName: string;
+  startTime: string;
+  endTime: string;
+  roomName?: string;
+  roomId?: number;
+  status?: string;
+  note?: string;
+  sourceCourseId?: string;
+  sourceClassId?: string;
+}
+
+export interface Room {
+  id: string;
+  name: string;
+  campus: string;
+  capacity: number;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AttendanceRecord {

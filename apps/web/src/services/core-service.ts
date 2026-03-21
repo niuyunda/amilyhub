@@ -9,8 +9,10 @@ import type {
   RbacRoleItem,
   Order,
   ScheduleItem,
+  ScheduleEvent,
   Student,
   Teacher,
+  Room,
 } from "@/src/types/domain";
 import type {
   AttendanceQuery,
@@ -176,6 +178,8 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
     const r = await getJson<ApiList<any>>("/students", {
       q: query.keyword,
       status: query.status,
+      source: query.source,
+      age_range: query.ageRange,
       page: query.page,
       page_size: query.pageSize,
     });
@@ -194,6 +198,14 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
         birthday: x.birthday ? String(x.birthday) : "-",
         creator: x.creator ?? "-",
         createdAt: formatDateTime(x.source_created_at),
+        source: x.source,
+        grade: x.grade,
+        school: x.school,
+        tags: Array.isArray(x.tags) ? x.tags.map((t: unknown) => String(t)) : [],
+        followUpPerson: x.follow_up_person,
+        eduManager: x.edu_manager,
+        wechatBound: Boolean(x.wechat_bound),
+        faceCaptured: Boolean(x.face_captured),
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
@@ -311,6 +323,12 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
         capacity: Number(x.capacity ?? 0),
         classType: x.class_type === "一对一" ? "一对一" : "班课",
         status: x.status === "已结班" ? "已结班" : "开班中",
+        sourceClassId: x.source_class_id,
+        courseId: x.course_id,
+        teacherId: x.teacher_id,
+        description: x.description,
+        startDate: x.start_date,
+        endDate: x.end_date,
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
@@ -357,6 +375,9 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
           : undefined,
         activeStudents: Number(x.active_students ?? 0),
         status: x.status === "停用" ? "停用" : "启用",
+        validityDays: x.validity_days != null ? Number(x.validity_days) : undefined,
+        description: x.description,
+        materials: Array.isArray(x.materials) ? x.materials.map((m: unknown) => String(m)) : undefined,
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
@@ -376,6 +397,9 @@ export async function createCourse(input: {
   pricingRules: string;
   pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   studentNum?: number;
+  validityDays?: number;
+  description?: string;
+  materials?: string[];
 }): Promise<ServiceResult<any>> {
   try {
     const r = await sendJson<ApiObj<any>>("POST", "/courses", {
@@ -386,6 +410,9 @@ export async function createCourse(input: {
       pricing_rules: input.pricingRules,
       pricing_items: input.pricingItems ?? [],
       student_num: input.studentNum ?? 0,
+      validity_days: input.validityDays,
+      description: input.description,
+      materials: input.materials,
     });
     return ok(r.data);
   } catch (e) {
@@ -402,6 +429,9 @@ export async function updateCourse(courseId: string, input: {
   pricingRules: string;
   pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   studentNum?: number;
+  validityDays?: number;
+  description?: string;
+  materials?: string[];
 }): Promise<ServiceResult<any>> {
   try {
     const r = await sendJson<ApiObj<any>>("PUT", `/courses/${encodeURIComponent(courseId)}`, {
@@ -412,6 +442,9 @@ export async function updateCourse(courseId: string, input: {
       pricing_rules: input.pricingRules,
       pricing_items: input.pricingItems ?? [],
       student_num: input.studentNum ?? 0,
+      validity_days: input.validityDays,
+      description: input.description,
+      materials: input.materials,
     });
     return ok(r.data);
   } catch (e) {
@@ -607,6 +640,174 @@ export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<
   }
 }
 
+export async function updateScheduleEvent(eventId: number, input: {
+  className: string;
+  teacherName: string;
+  startTime: string;
+  endTime: string;
+  roomName?: string;
+  status?: string;
+}): Promise<ServiceResult<ScheduleEvent>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/schedule-events/${eventId}`, {
+      class_name: input.className,
+      teacher_name: input.teacherName,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      room_name: input.roomName,
+      status: input.status,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function deleteScheduleEvent(eventId: number): Promise<ServiceResult<{ id: number }>> {
+  try {
+    const r = await sendJson<ApiObj<{ id: number }>>("DELETE", `/schedule-events/${eventId}`);
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function listRooms(query?: {
+  q?: string;
+  campus?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ServiceResult<PageResult<Room>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/rooms", {
+      q: query?.q,
+      campus: query?.campus,
+      status: query?.status,
+      page: query?.page,
+      page_size: query?.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.id),
+        name: x.name ?? "-",
+        campus: x.campus ?? "-",
+        capacity: Number(x.capacity ?? 0),
+        status: x.status ?? "active",
+        createdAt: x.created_at,
+        updatedAt: x.updated_at,
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function createRoom(input: {
+  name: string;
+  campus?: string;
+  capacity?: number;
+  status?: string;
+}): Promise<ServiceResult<Room>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/rooms", {
+      name: input.name,
+      campus: input.campus ?? "",
+      capacity: input.capacity ?? 0,
+      status: input.status ?? "active",
+    });
+    return ok({
+      id: String(r.data.id),
+      name: r.data.name ?? "-",
+      campus: r.data.campus ?? "-",
+      capacity: Number(r.data.capacity ?? 0),
+      status: r.data.status ?? "active",
+      createdAt: r.data.created_at,
+      updatedAt: r.data.updated_at,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function updateRoom(roomId: string, input: {
+  name?: string;
+  campus?: string;
+  capacity?: number;
+  status?: string;
+}): Promise<ServiceResult<Room>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("PUT", `/rooms/${roomId}`, {
+      name: input.name,
+      campus: input.campus,
+      capacity: input.capacity,
+      status: input.status,
+    });
+    return ok({
+      id: String(r.data.id),
+      name: r.data.name ?? "-",
+      campus: r.data.campus ?? "-",
+      capacity: Number(r.data.capacity ?? 0),
+      status: r.data.status ?? "active",
+      createdAt: r.data.created_at,
+      updatedAt: r.data.updated_at,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function deleteRoom(roomId: string): Promise<ServiceResult<{ id: string }>> {
+  try {
+    const r = await sendJson<ApiObj<{ id: string }>>("DELETE", `/rooms/${roomId}`);
+    return ok({ id: String(r.data.id) });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function exportIncomeExpenseCsv(query?: {
+  q?: string;
+  direction?: string;
+  paymentMethod?: string;
+  itemType?: string;
+  status?: string;
+  operationDateFrom?: string;
+  operationDateTo?: string;
+}): Promise<ServiceResult<{ filename: string; blob: Blob }>> {
+  try {
+    const sp = new URLSearchParams();
+    if (query?.q) sp.set("q", query.q);
+    if (query?.direction) sp.set("direction", query.direction);
+    if (query?.paymentMethod) sp.set("payment_method", query.paymentMethod);
+    if (query?.itemType) sp.set("item_type", query.itemType);
+    if (query?.status) sp.set("status", query.status);
+    if (query?.operationDateFrom) sp.set("operation_date_from", query.operationDateFrom);
+    if (query?.operationDateTo) sp.set("operation_date_to", query.operationDateTo);
+    const qs = sp.toString();
+    const url = `${API_BASE}/income-expense/export${qs ? `?${qs}` : ""}`;
+    const res = await fetch(url, { headers: getOperatorHeaders() });
+    if (res.status === 403) return { kind: "forbidden", message: "无权限执行该操作" };
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+    const blob = await res.blob();
+    const contentDisposition = res.headers.get("content-disposition") || "";
+    const filename = /filename="?([^";]+)"?/i.exec(contentDisposition)?.[1] || "income_expense.csv";
+    return ok({ filename, blob });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
 export async function createScheduleEvent(input: {
   className: string;
   teacherName: string;
@@ -690,6 +891,7 @@ export async function getFinanceRecords(
       getJson<ApiList<any>>("/income-expense", {
         q: query.keyword,
         direction: query.direction,
+        payment_method: query.paymentMethod,
         page: query.page,
         page_size: query.pageSize,
       }),
