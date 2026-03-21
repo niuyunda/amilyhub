@@ -372,7 +372,7 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
         className: x.class_name ?? "-",
         courseName: x.course_name ?? "-",
         teacherName: String(x.teacher_name ?? "-").replace(/[\[\]"]/g, ""),
-        rollcallTime: formatDateTime(x.rollcall_time),
+        rollcallTime: x.rollcall_time ? String(x.rollcall_time) : "-",
         classTimeRange: x.class_time_range ?? "-",
         status: x.status ?? "-",
         teachingHours: Number(x.teaching_hours ?? 0),

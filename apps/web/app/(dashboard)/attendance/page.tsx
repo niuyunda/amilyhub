@@ -87,10 +87,11 @@ export default function AttendancePage() {
     { key: "rollcallTime", title: "点名时间" },
     { key: "className", title: "班级名称" },
     { key: "courseName", title: "授课课程" },
+    { key: "classTimeRange", title: "上课时间" },
     { key: "teacherName", title: "上课老师" },
     { key: "teachingHours", title: "授课课时" },
     { key: "attendanceSummary", title: "实到人数" },
-    { key: "consumedAmountYuan", title: "课消金额(¥)" },
+    { key: "consumedAmountYuan", title: "课消金额", render: (row) => row.consumedAmountYuan ? `￥${row.consumedAmountYuan.toFixed(2)}` : "0" },
     { key: "status", title: "状态", render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge> },
   ], []);
 
@@ -147,6 +148,7 @@ export default function AttendancePage() {
             <p><span className="text-muted-foreground">点名时间：</span>{selected.rollcallTime}</p>
             <p><span className="text-muted-foreground">班级：</span>{selected.className}</p>
             <p><span className="text-muted-foreground">课程：</span>{selected.courseName}</p>
+            <p><span className="text-muted-foreground">上课时间：</span>{selected.classTimeRange}</p>
             <p><span className="text-muted-foreground">老师：</span>{selected.teacherName}</p>
             <p><span className="text-muted-foreground">状态：</span>{selected.status}</p>
             <p><span className="text-muted-foreground">授课课时：</span>{selected.teachingHours}</p>
@@ -162,7 +164,7 @@ export default function AttendancePage() {
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">学员名单</p>
                     {(detail["students"] as Array<Record<string, unknown>>).map((s, i) => (
-                      <p key={i}>{String(s["student_name"] ?? "-")} · {String(s["status"] ?? "-")} · 扣课{String(s["deduct_lessons"] ?? 0)} · ¥{String(s["deduct_amount_yuan"] ?? 0)}</p>
+                      <p key={i}>{String(s["student_name"] ?? "-")} · {String(s["arrival_status"] ?? "-")} · 扣课{String(s["deduct_lessons"] ?? 0)} · ¥{String(s["deduct_amount_yuan"] ?? 0)}</p>
                     ))}
                   </div>
                 ) : null}
