@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createStudent, deleteStudent, enrollStudent, getStudentProfile, getStudents, updateStudent } from "@/src/services/core-service";
+import { createStudent, deleteStudent, enrollStudent, getCourses, getStudentProfile, getStudents, updateStudent } from "@/src/services/core-service";
 import type { Student } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
@@ -82,6 +82,8 @@ export default function StudentsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [enrollCourse, setEnrollCourse] = useState("");
   const [enrollAmount, setEnrollAmount] = useState("0");
+  const [enrollCourses, setEnrollCourses] = useState<Array<{ id: string; name: string; pricingItems: Array<{ name: string; quantity: number; totalPrice: number }> }>>([]);
+  const [enrollPriceName, setEnrollPriceName] = useState("");
   const [form, setForm] = useState<StudentFormState>(DEFAULT_FORM);
   const [statusStats, setStatusStats] = useState({ all: 0, active: 0, suspended: 0, ended: 0 });
 
@@ -246,13 +248,23 @@ export default function StudentsPage() {
     }
   };
 
-  const openEnroll = () => {
+  const openEnroll = async () => {
     if (!selected) {
       toast.warning("请先点击一行学员");
       return;
     }
-    setEnrollCourse("");
-    setEnrollAmount("0");
+    const courseRes = await getCourses({ page: 1, pageSize: 200 });
+    if (courseRes.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
+    }
+    const mapped = courseRes.data.items.map((c) => ({ id: c.id, name: c.courseName, pricingItems: c.pricingItems ?? [] }));
+    setEnrollCourses(mapped);
+    const first = mapped[0];
+    const firstPrice = first?.pricingItems?.[0];
+    setEnrollCourse(first?.name ?? "");
+    setEnrollPriceName(firstPrice?.name ?? "");
+    setEnrollAmount(String(firstPrice?.totalPrice ?? 0));
     setEnrollOpen(true);
   };
 
@@ -307,6 +319,9 @@ export default function StudentsPage() {
       setSubmitting(false);
     }
   };
+
+  const selectedEnrollCourse = enrollCourses.find((c) => c.name === enrollCourse);
+  const enrollPriceOptions = selectedEnrollCourse?.pricingItems ?? [];
 
   const exportCsv = () => {
     const header = ["学员ID", "学员姓名", "手机号", "状态", "所在班级", "年龄", "创建时间"];
@@ -440,7 +455,42 @@ export default function StudentsPage() {
             <DialogDescription>为当前学员创建一笔报名订单（对齐小麦“报名”主流程）。</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
-            <Input placeholder="课程名称" value={enrollCourse} onChange={(e) => setEnrollCourse(e.target.value)} />
+            <Select
+              value={enrollCourse || "__none"}
+              onValueChange={(value) => {
+                if (value === "__none") return;
+                setEnrollCourse(value);
+                const c = enrollCourses.find((x) => x.name === value);
+                const p = c?.pricingItems?.[0];
+                setEnrollPriceName(p?.name ?? "");
+                setEnrollAmount(String(p?.totalPrice ?? 0));
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="选择课程" /></SelectTrigger>
+              <SelectContent>
+                {enrollCourses.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={enrollPriceName || "__none"}
+              onValueChange={(value) => {
+                if (value === "__none") return;
+                setEnrollPriceName(value);
+                const p = enrollPriceOptions.find((x) => x.name === value);
+                if (p) setEnrollAmount(String(p.totalPrice));
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="选择定价规则" /></SelectTrigger>
+              <SelectContent>
+                {enrollPriceOptions.length ? enrollPriceOptions.map((p, i) => (
+                  <SelectItem key={`${p.name}-${i}`} value={p.name}>{p.name}（{p.totalPrice}元/{p.quantity}课时）</SelectItem>
+                )) : <SelectItem value="__none" disabled>无可用定价规则</SelectItem>}
+              </SelectContent>
+            </Select>
+
             <Input type="number" placeholder="报名金额（元）" value={enrollAmount} onChange={(e) => setEnrollAmount(e.target.value)} />
           </div>
           <DialogFooter>

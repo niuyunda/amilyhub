@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getOrders, getStudentProfile } from "@/src/services/core-service";
+import { getOrders, getStudentProfile, updateStudent } from "@/src/services/core-service";
 import type { Order } from "@/src/types/domain";
 
 type ProfileData = {
@@ -113,25 +113,25 @@ export default function StudentDetailPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [showAllCourses, setShowAllCourses] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      setStatus("loading");
-      const [profileRes, orderRes] = await Promise.all([
-        getStudentProfile(studentId),
-        getOrders({ page: 1, pageSize: 100, studentId }),
-      ]);
+  const reload = async (loading = true) => {
+    if (loading) setStatus("loading");
+    const [profileRes, orderRes] = await Promise.all([
+      getStudentProfile(studentId),
+      getOrders({ page: 1, pageSize: 100, studentId }),
+    ]);
 
-      if (profileRes.kind === "forbidden" || orderRes.kind === "forbidden") {
-        setStatus("forbidden");
-        return;
-      }
-
-      setProfile(profileRes.data as ProfileData);
-      setOrders(orderRes.data.items);
-      setStatus("ready");
+    if (profileRes.kind === "forbidden" || orderRes.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
     }
 
-    load().catch((e: unknown) => {
+    setProfile(profileRes.data as ProfileData);
+    setOrders(orderRes.data.items);
+    setStatus("ready");
+  };
+
+  useEffect(() => {
+    reload(true).catch((e: unknown) => {
       setStatus("error");
       setError(e instanceof Error ? e.message : "学员详情加载失败");
     });
@@ -158,6 +158,12 @@ export default function StudentDetailPage() {
     return showAllCourses ? rows : rows.slice(0, 2);
   }, [profile, showAllCourses]);
 
+  const changeStatus = async (next: "在读" | "停课" | "结课") => {
+    if (!profile) return;
+    await updateStudent(profile.student.source_student_id, { status: next });
+    await reload(false);
+  };
+
   return (
     <div className="space-y-5">
       {status === "loading" ? <LoadingState text="正在加载学员详情..." /> : null}
@@ -177,10 +183,9 @@ export default function StudentDetailPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" onClick={() => history.back()}>返回学员列表</Button>
-                <Button size="sm">报名</Button>
-                <Button size="sm" variant="outline">试听</Button>
-                <Button size="sm" variant="outline">编辑资料</Button>
-                <Button size="sm" variant="outline">更多操作</Button>
+                <Button size="sm" variant="outline" onClick={() => void changeStatus("在读")}>恢复在读</Button>
+                <Button size="sm" variant="outline" onClick={() => void changeStatus("停课")}>停课</Button>
+                <Button size="sm" variant="outline" onClick={() => void changeStatus("结课")}>结课</Button>
               </div>
             </div>
 
