@@ -39,6 +39,10 @@ export const students: Student[] = [
     latestClassAt: "2026-03-20 19:00",
     remainHours: 42,
     className: "初二数学提高班",
+    age: 14,
+    birthday: "2012-05-12",
+    creator: "admin",
+    createdAt: "2026-01-10",
   },
   {
     id: "stu-2",
@@ -50,6 +54,10 @@ export const students: Student[] = [
     latestClassAt: "2026-03-11 18:30",
     remainHours: 16,
     className: "高一英语强化班",
+    age: 16,
+    birthday: "2010-08-20",
+    creator: "admin",
+    createdAt: "2026-02-15",
   },
   {
     id: "stu-3",
@@ -61,6 +69,10 @@ export const students: Student[] = [
     latestClassAt: "2026-02-28 16:00",
     remainHours: 0,
     className: "小升初语文冲刺班",
+    age: 11,
+    birthday: "2015-11-05",
+    creator: "admin",
+    createdAt: "2025-12-01",
   },
 ];
 
@@ -104,6 +116,7 @@ export const classes: ClassRoom[] = [
     studentCount: 28,
     capacity: 32,
     status: "开班中",
+    classType: "班课",
   },
   {
     id: "cls-2",
@@ -114,6 +127,7 @@ export const classes: ClassRoom[] = [
     studentCount: 18,
     capacity: 24,
     status: "开班中",
+    classType: "班课",
   },
   {
     id: "cls-3",
@@ -124,6 +138,7 @@ export const classes: ClassRoom[] = [
     studentCount: 0,
     capacity: 30,
     status: "已结班",
+    classType: "班课",
   },
 ];
 

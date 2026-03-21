@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { DataTable, type ColumnDef } from "@/components/common/data-table";
+import { FilterBar } from "@/components/common/filter-bar";
+import { PageHeader } from "@/components/common/page-header";
 import { Pager } from "@/components/common/pager";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
@@ -76,34 +78,45 @@ export default function ClassesPage() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold">班级管理</h2>
-            <p className="text-sm text-muted-foreground">对齐小麦助教：班课/一对一、班级清单、班级详情、排课信息、班级学员、点名情况。</p>
+      <PageHeader
+        title="班级管理"
+        description="对齐小麦助教：班课/一对一、班级清单、班级详情、排课信息、班级学员、点名情况。"
+        actions={
+          <div className="inline-flex rounded-lg bg-muted p-1">
+            <button className={`rounded-md px-4 py-1.5 text-sm font-medium transition-all ${classType === "班课" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted-foreground/10"}`} onClick={() => { setClassType("班课"); void load(1, "班课"); }}>班课</button>
+            <button className={`rounded-md px-4 py-1.5 text-sm font-medium transition-all ${classType === "一对一" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted-foreground/10"}`} onClick={() => { setClassType("一对一"); void load(1, "一对一"); }}>一对一</button>
           </div>
+        }
+      />
 
-          <div className="inline-flex rounded-2xl bg-muted p-1">
-            <button className={`rounded-xl px-4 py-2 text-sm ${classType === "班课" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => { setClassType("班课"); void load(1, "班课"); }}>班课</button>
-            <button className={`rounded-xl px-4 py-2 text-sm ${classType === "一对一" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => { setClassType("一对一"); void load(1, "一对一"); }}>一对一</button>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Input className="max-w-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="关键词（班级/课程）" />
-            <Input className="max-w-40" value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)} placeholder="老师" />
-            <Select value={statusFilter} onValueChange={(v: "all" | "开班中" | "已结班") => setStatusFilter(v)}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="开班中">开班中</SelectItem>
-                <SelectItem value="已结班">已结班</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={() => void load(1)}>查询</Button>
-            <Button variant="outline" onClick={() => { setKeyword(""); setTeacherFilter(""); setStatusFilter("all"); void load(1); }}>重置</Button>
-          </div>
-        </CardContent>
-      </Card>
+      <FilterBar
+        onReset={() => {
+          setKeyword("");
+          setTeacherFilter("");
+          setStatusFilter("all");
+          void load(1);
+        }}
+        onQuery={() => void load(1)}
+      >
+        <FilterField label="关键词（班级/课程）">
+          <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="请输入关键词" />
+        </FilterField>
+        <FilterField label="授课老师">
+          <Input value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)} placeholder="老师" />
+        </FilterField>
+        <FilterField label="开班状态">
+          <Select value={statusFilter} onValueChange={(v: "all" | "开班中" | "已结班") => setStatusFilter(v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="全部状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部状态</SelectItem>
+              <SelectItem value="开班中">开班中</SelectItem>
+              <SelectItem value="已结班">已结班</SelectItem>
+            </SelectContent>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
       {status === "loading" ? <LoadingState text="班级列表加载中..." /> : null}
       {status === "error" ? <ErrorState message={error || "请求失败，请稍后重试"} onRetry={() => void load(page)} /> : null}
@@ -111,10 +124,23 @@ export default function ClassesPage() {
 
       {status === "ready" ? (
         <>
-          <DataTable rows={rows} columns={columns} />
+          <Card>
+            <CardContent className="p-4">
+              <DataTable rows={rows} columns={columns} />
+            </CardContent>
+          </Card>
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
         </>
       ) : null}
+    </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      {children}
     </div>
   );
 }

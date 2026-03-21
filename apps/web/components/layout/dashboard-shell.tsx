@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bell, ChevronDown, LayoutDashboard, Search, Users, UserSquare2, GraduationCap, ReceiptText, WalletCards } from "lucide-react";
+import { Bell, ChevronDown, LayoutDashboard, Search, Users, GraduationCap, CalendarDays, ClipboardList, BookOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,10 +32,10 @@ const pageMeta: Record<string, { title: string; desc: string }> = Object.fromEnt
 const navIcons = {
   dashboard: LayoutDashboard,
   students: Users,
-  teachers: UserSquare2,
   classes: GraduationCap,
-  orders: ReceiptText,
-  finance: WalletCards,
+  schedules: CalendarDays,
+  attendance: ClipboardList,
+  courses: BookOpen,
 } as const;
 
 export function DashboardShell({ children }: { children: ReactNode }) {
@@ -46,25 +46,25 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-muted/40">
       <div className="grid min-h-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-none border bg-background shadow-sm max-lg:grid-cols-1">
         <aside className="border-r border-sidebar-border bg-sidebar/60 p-4 text-sidebar-foreground max-lg:border-b max-lg:border-r-0">
-          <div className="rounded-xl bg-card px-3 py-3 text-lg font-bold text-sidebar-foreground">AmilyHub 教务系统</div>
-          <nav className="mt-4 space-y-1 max-lg:flex max-lg:space-x-1 max-lg:space-y-0 max-lg:overflow-x-auto max-lg:pb-1">
+          <div className="px-3 py-3 text-lg font-bold text-sidebar-foreground">Amily</div>
+          <ul className="mt-4 flex w-full min-w-0 flex-col gap-1 px-2 pb-1 max-lg:flex-row max-lg:overflow-x-auto">
             {coreNavItems.map((item) => {
               const active = pathname === item.href;
               const Icon = navIcons[item.key];
               return (
-                <Link key={item.key} href={item.href} className="max-lg:flex-shrink-0">
-                  <Button
-                    variant={active ? "secondary" : "ghost"}
-                    className="h-10 w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground max-lg:w-auto max-lg:whitespace-nowrap"
+                <li key={item.key} className="relative min-w-0 group/menu-item">
+                  <Link
+                    href={item.href}
+                    className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-primary/90 active:text-primary-foreground disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-primary/90 data-[active=true]:font-medium data-[active=true]:text-primary-foreground"
                     data-active={active}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Button>
-                </Link>
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                </li>
               );
             })}
-          </nav>
+          </ul>
         </aside>
 
         <div className="min-w-0">

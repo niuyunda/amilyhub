@@ -6,8 +6,8 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AmilyHub Dashboard",
-  description: "AmilyHub frontend powered by Next.js",
+  title: "Amily",
+  description: "AmilyHub",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

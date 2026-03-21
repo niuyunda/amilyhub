@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { DataTable, type ColumnDef } from "@/components/common/data-table";
+import { FilterBar } from "@/components/common/filter-bar";
+import { PageHeader } from "@/components/common/page-header";
 import { DetailSheet } from "@/components/common/detail-sheet";
 import { Pager } from "@/components/common/pager";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
@@ -259,44 +261,36 @@ export default function StudentsPage() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold">学员管理</h2>
-            <p className="text-sm text-muted-foreground">对齐小麦助教核心流程：查询筛选、详情查看、新增编辑、停课与导出。</p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
+      <PageHeader
+        title="学员管理"
+        description="对齐小麦助教核心流程：查询筛选、详情查看、新增编辑、停课与导出。"
+        actions={
+          <>
             <Button onClick={openCreate}>新增学员</Button>
             <Button variant="outline" onClick={openEdit}>编辑学员</Button>
             <Button variant="outline" onClick={exportCsv}>导出</Button>
-          </div>
+          </>
+        }
+      />
 
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">搜索学员</p>
-            <div className="flex flex-wrap gap-2">
-              <Input className="max-w-md" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="请输入学员姓名/手机号" />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setKeyword("");
-                  setStatusFilter("all");
-                  void load(1, { keyword: "", statusFilter: "all" });
-                }}
-              >
-                重置
-              </Button>
-              <Button onClick={() => void load(1)}>查询</Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <FilterBar
+        onReset={() => {
+          setKeyword("");
+          setStatusFilter("all");
+          void load(1, { keyword: "", statusFilter: "all" });
+        }}
+        onQuery={() => void load(1)}
+      >
+        <FilterField label="关键词（姓名/手机号）">
+          <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="请输入学员姓名/手机号" />
+        </FilterField>
+      </FilterBar>
 
       <div className="flex flex-wrap gap-2 text-sm">
-        <Button variant={statusFilter === "all" ? "default" : "outline"} onClick={() => { setStatusFilter("all"); void load(1, { statusFilter: "all" }); }}>全部学员（{statusStats.all}）</Button>
-        <Button variant={statusFilter === "在读" ? "default" : "outline"} onClick={() => { setStatusFilter("在读"); void load(1, { statusFilter: "在读" }); }}>在读学员（{statusStats.active}）</Button>
-        <Button variant={statusFilter === "停课" ? "default" : "outline"} onClick={() => { setStatusFilter("停课"); void load(1, { statusFilter: "停课" }); }}>停课学员（{statusStats.suspended}）</Button>
-        <Button variant={statusFilter === "结课" ? "default" : "outline"} onClick={() => { setStatusFilter("结课"); void load(1, { statusFilter: "结课" }); }}>结课学员（{statusStats.ended}）</Button>
+        <Button variant={statusFilter === "all" ? "secondary" : "ghost"} className={statusFilter === "all" ? "bg-primary/10 text-primary hover:bg-primary/20" : "text-muted-foreground"} onClick={() => { setStatusFilter("all"); void load(1, { statusFilter: "all" }); }}>全部学员（{statusStats.all}）</Button>
+        <Button variant={statusFilter === "在读" ? "secondary" : "ghost"} className={statusFilter === "在读" ? "bg-primary/10 text-primary hover:bg-primary/20" : "text-muted-foreground"} onClick={() => { setStatusFilter("在读"); void load(1, { statusFilter: "在读" }); }}>在读学员（{statusStats.active}）</Button>
+        <Button variant={statusFilter === "停课" ? "secondary" : "ghost"} className={statusFilter === "停课" ? "bg-primary/10 text-primary hover:bg-primary/20" : "text-muted-foreground"} onClick={() => { setStatusFilter("停课"); void load(1, { statusFilter: "停课" }); }}>停课学员（{statusStats.suspended}）</Button>
+        <Button variant={statusFilter === "结课" ? "secondary" : "ghost"} className={statusFilter === "结课" ? "bg-primary/10 text-primary hover:bg-primary/20" : "text-muted-foreground"} onClick={() => { setStatusFilter("结课"); void load(1, { statusFilter: "结课" }); }}>结课学员（{statusStats.ended}）</Button>
       </div>
 
       {status === "loading" ? <LoadingState text="学员列表加载中..." /> : null}
@@ -444,6 +438,15 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="rounded-md border p-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="font-medium">{value}</p>
+    </div>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      {children}
     </div>
   );
 }
