@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getAttendance, getAttendanceDetail } from "@/src/services/core-service";
 import type { AttendanceRecord } from "@/src/types/domain";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function statusVariant(status: string): "default" | "secondary" | "outline" {
   if (status.includes("到") || status.includes("已")) return "default";
@@ -34,7 +34,10 @@ export default function AttendancePage() {
   const [keyword, setKeyword] = useState("");
   const [teacherName, setTeacherName] = useState("");
   const [className, setClassName] = useState("");
-  const [date, setDate] = useState("");
+  const [rollcallDateStart, setRollcallDateStart] = useState("");
+  const [rollcallDateEnd, setRollcallDateEnd] = useState("");
+  const [classDateStart, setClassDateStart] = useState("");
+  const [classDateEnd, setClassDateEnd] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
 
   const load = useCallback(async (nextPage: number) => {
@@ -46,7 +49,10 @@ export default function AttendancePage() {
       teacherName: teacherName || undefined,
       className: className || undefined,
       status: stateFilter === "all" ? undefined : stateFilter,
-      date: date || undefined,
+      rollcallDateStart: rollcallDateStart || undefined,
+      rollcallDateEnd: rollcallDateEnd || undefined,
+      classDateStart: classDateStart || undefined,
+      classDateEnd: classDateEnd || undefined,
     });
     if (r.kind === "forbidden") {
       setStatus("forbidden");
@@ -56,7 +62,7 @@ export default function AttendancePage() {
     setPage(r.data.page);
     setTotal(r.data.total);
     setStatus("ready");
-  }, [keyword, teacherName, className, stateFilter, date]);
+  }, [keyword, teacherName, className, stateFilter, rollcallDateStart, rollcallDateEnd, classDateStart, classDateEnd]);
 
   useEffect(() => {
     load(1).catch((e: unknown) => {
@@ -98,10 +104,13 @@ export default function AttendancePage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Input className="max-w-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索学员/班级/老师" />
+            <Input className="max-w-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索班级/课程/老师" />
             <Input className="max-w-40" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} placeholder="老师" />
             <Input className="max-w-52" value={className} onChange={(e) => setClassName(e.target.value)} placeholder="班级" />
-            <Input type="date" className="max-w-44" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Input type="date" className="max-w-44" value={classDateStart} onChange={(e) => setClassDateStart(e.target.value)} />
+            <Input type="date" className="max-w-44" value={classDateEnd} onChange={(e) => setClassDateEnd(e.target.value)} />
+            <Input type="date" className="max-w-44" value={rollcallDateStart} onChange={(e) => setRollcallDateStart(e.target.value)} />
+            <Input type="date" className="max-w-44" value={rollcallDateEnd} onChange={(e) => setRollcallDateEnd(e.target.value)} />
             <Select value={stateFilter} onValueChange={setStateFilter}>
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -111,7 +120,7 @@ export default function AttendancePage() {
               </SelectContent>
             </Select>
             <Button onClick={() => void load(1)}>查询</Button>
-            <Button variant="outline" onClick={() => { setKeyword(""); setTeacherName(""); setClassName(""); setDate(""); setStateFilter("all"); void load(1); }}>重置</Button>
+            <Button variant="outline" onClick={() => { setKeyword(""); setTeacherName(""); setClassName(""); setClassDateStart(""); setClassDateEnd(""); setRollcallDateStart(""); setRollcallDateEnd(""); setStateFilter("all"); void load(1); }}>重置</Button>
           </div>
         </CardContent>
       </Card>
@@ -145,11 +154,18 @@ export default function AttendancePage() {
             <p><span className="text-muted-foreground">课消金额：</span>¥{selected.consumedAmountYuan}</p>
             <p><span className="text-muted-foreground">学员名单：</span>{selected.studentNames}</p>
             {detail ? (
-              <div className="rounded border p-2">
+              <div className="rounded border p-2 space-y-2">
                 <p className="mb-1 text-xs text-muted-foreground">明细</p>
                 <p>实到人数：{String(detail["attendance_summary"] ?? "-")}</p>
                 <p>总学员数：{String(detail["total_students"] ?? "-")}</p>
-                <p>sourceIds：{Array.isArray(detail["source_ids"]) ? (detail["source_ids"] as string[]).join(", ") : "-"}</p>
+                {Array.isArray(detail["students"]) ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">学员名单</p>
+                    {(detail["students"] as Array<Record<string, unknown>>).map((s, i) => (
+                      <p key={i}>{String(s["student_name"] ?? "-")} · {String(s["status"] ?? "-")} · 扣课{String(s["deduct_lessons"] ?? 0)} · ¥{String(s["deduct_amount_yuan"] ?? 0)}</p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

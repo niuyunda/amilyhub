@@ -359,6 +359,10 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
       class_name: query.className,
       status: query.status,
       date: query.date,
+      rollcall_date_start: query.rollcallDateStart,
+      rollcall_date_end: query.rollcallDateEnd,
+      class_date_start: query.classDateStart,
+      class_date_end: query.classDateEnd,
       page: query.page,
       page_size: query.pageSize,
     });

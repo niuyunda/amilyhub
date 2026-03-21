@@ -49,6 +49,10 @@ export interface AttendanceQuery extends ListQuery {
   className?: string;
   status?: string;
   date?: string;
+  rollcallDateStart?: string;
+  rollcallDateEnd?: string;
+  classDateStart?: string;
+  classDateEnd?: string;
 }
 
 export type ServiceResult<T> = { kind: "ok"; data: T } | { kind: "forbidden"; message: string };
