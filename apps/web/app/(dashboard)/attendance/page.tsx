@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { DataTable, type ColumnDef } from "@/components/common/data-table";
-import { DetailSheet } from "@/components/common/detail-sheet";
 import { Pager } from "@/components/common/pager";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getAttendance, getAttendanceDetail } from "@/src/services/core-service";
+import { getAttendance } from "@/src/services/core-service";
 import type { AttendanceRecord } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
@@ -28,8 +28,7 @@ export default function AttendancePage() {
   const [rows, setRows] = useState<AttendanceRecord[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [selected, setSelected] = useState<AttendanceRecord | null>(null);
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const router = useRouter();
 
   const [keyword, setKeyword] = useState("");
   const [teacherName, setTeacherName] = useState("");
@@ -71,17 +70,6 @@ export default function AttendancePage() {
     });
   }, [load]);
 
-  useEffect(() => {
-    if (!selected) {
-      setDetail(null);
-      return;
-    }
-    getAttendanceDetail(selected.id)
-      .then((r) => {
-        if (r.kind === "ok") setDetail(r.data);
-      })
-      .catch(() => setDetail(null));
-  }, [selected]);
 
   const columns = useMemo<Array<ColumnDef<AttendanceRecord>>>(() => [
     { key: "rollcallTime", title: "点名时间" },
@@ -132,47 +120,11 @@ export default function AttendancePage() {
 
       {status === "ready" ? (
         <>
-          <DataTable rows={rows} columns={columns} onRowClick={(row) => setSelected(row)} />
+          <DataTable rows={rows} columns={columns} onRowClick={(row) => router.push(`/attendance/${encodeURIComponent(row.id)}`)} />
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
         </>
       ) : null}
 
-      <DetailSheet
-        open={Boolean(selected)}
-        onOpenChange={(open) => { if (!open) setSelected(null); }}
-        title={selected ? `上课详情 · ${selected.className}` : "上课详情"}
-      >
-        {selected ? (
-          <div className="space-y-2 text-sm">
-            <p><span className="text-muted-foreground">记录ID：</span>{selected.id}</p>
-            <p><span className="text-muted-foreground">点名时间：</span>{selected.rollcallTime}</p>
-            <p><span className="text-muted-foreground">班级：</span>{selected.className}</p>
-            <p><span className="text-muted-foreground">课程：</span>{selected.courseName}</p>
-            <p><span className="text-muted-foreground">上课时间：</span>{selected.classTimeRange}</p>
-            <p><span className="text-muted-foreground">老师：</span>{selected.teacherName}</p>
-            <p><span className="text-muted-foreground">状态：</span>{selected.status}</p>
-            <p><span className="text-muted-foreground">授课课时：</span>{selected.teachingHours}</p>
-            <p><span className="text-muted-foreground">实到人数：</span>{selected.attendanceSummary}</p>
-            <p><span className="text-muted-foreground">课消金额：</span>¥{selected.consumedAmountYuan}</p>
-            <p><span className="text-muted-foreground">学员名单：</span>{selected.studentNames}</p>
-            {detail ? (
-              <div className="rounded border p-2 space-y-2">
-                <p className="mb-1 text-xs text-muted-foreground">明细</p>
-                <p>实到人数：{String(detail["attendance_summary"] ?? "-")}</p>
-                <p>总学员数：{String(detail["total_students"] ?? "-")}</p>
-                {Array.isArray(detail["students"]) ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">学员名单</p>
-                    {(detail["students"] as Array<Record<string, unknown>>).map((s, i) => (
-                      <p key={i}>{String(s["student_name"] ?? "-")} · {String(s["arrival_status"] ?? "-")} · 扣课{String(s["deduct_lessons"] ?? 0)} · ¥{String(s["deduct_amount_yuan"] ?? 0)}</p>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </DetailSheet>
     </div>
   );
 }
