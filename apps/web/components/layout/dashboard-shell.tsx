@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
-import { Bell, ChevronDown, LayoutDashboard, Search, Users, GraduationCap, CalendarDays, ClipboardList, BookOpen } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { Bell, ChevronDown, LayoutDashboard, Search, Users, UserSquare2, GraduationCap, ReceiptText, WalletCards, PanelLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,79 +32,120 @@ const pageMeta: Record<string, { title: string; desc: string }> = Object.fromEnt
 const navIcons = {
   dashboard: LayoutDashboard,
   students: Users,
+  teachers: UserSquare2,
   classes: GraduationCap,
-  schedules: CalendarDays,
-  attendance: ClipboardList,
-  courses: BookOpen,
+  orders: ReceiptText,
+  finance: WalletCards,
 } as const;
 
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const current = pageMeta[pathname] ?? { title: "工作台", desc: "机构经营总览与待办" };
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   return (
-    <div className="min-h-screen bg-muted/40">
-      <div className="grid min-h-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-none border bg-background shadow-sm max-lg:grid-cols-1">
-        <aside className="border-r border-sidebar-border bg-sidebar/60 p-4 text-sidebar-foreground max-lg:border-b max-lg:border-r-0">
-          <div className="px-3 py-3 text-lg font-bold text-sidebar-foreground">Amily</div>
-          <ul className="mt-4 flex w-full min-w-0 flex-col gap-1 px-2 pb-1 max-lg:flex-row max-lg:overflow-x-auto">
-            {coreNavItems.map((item) => {
-              const active = pathname === item.href;
-              const Icon = navIcons[item.key];
-              return (
-                <li key={item.key} className="relative min-w-0 group/menu-item">
-                  <Link
-                    href={item.href}
-                    className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-primary/90 data-[active=true]:hover:bg-primary/90 data-[active=true]:font-medium data-[active=true]:text-primary-foreground"
-                    data-active={active}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+    <div className="min-h-screen bg-sidebar overflow-hidden">
+      <div 
+        className="grid min-h-screen transition-[grid-template-columns] duration-300 ease-in-out max-lg:grid-cols-1"
+        style={{ gridTemplateColumns: isSidebarOpen ? "250px minmax(0,1fr)" : "0px minmax(0,1fr)" }}
+      >
+        <aside className="relative z-10 flex flex-col overflow-hidden text-sidebar-foreground max-lg:border-b max-lg:h-auto">
+          <div className="flex w-[250px] flex-col h-full bg-sidebar">
+            <div className="flex h-[3.5rem] items-center gap-2 px-4 border-b border-transparent">
+              <div className="flex h-6 w-6 items-center justify-center rounded border border-sidebar-border bg-sidebar-accent text-xs font-bold text-sidebar-accent-foreground">
+                A
+              </div>
+              <span className="font-semibold text-sm">AmilyHub Inc.</span>
+            </div>
+
+            <div className="flex-1 overflow-auto py-4 scrollbar-none">
+              <nav className="px-2 space-y-1 max-lg:flex max-lg:space-x-1 max-lg:space-y-0 max-lg:overflow-x-auto max-lg:px-4">
+                {coreNavItems.map((item) => {
+                  const active = pathname === item.href;
+                  const Icon = navIcons[item.key];
+                  return (
+                    <Link key={item.key} href={item.href} className="block w-full max-lg:flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        className={`h-8 w-full justify-start gap-2 px-2 text-sm max-lg:w-auto ${
+                          active
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                            : "text-sidebar-foreground/70 font-normal hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </Button>
+                    </Link>
+                  );
+                })}
+              </nav>
+              
+              <div className="mt-8 px-4 max-lg:hidden">
+                <h4 className="mb-2 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">系统设置</h4>
+                <nav className="space-y-1 -mx-2">
+                  <Button variant="ghost" className="h-8 w-full justify-start gap-2 px-2 text-sm font-normal text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground">
+                    <Search className="h-4 w-4" />
+                    Search
+                  </Button>
+                </nav>
+              </div>
+            </div>
+
+            <div className="mt-auto border-t border-sidebar-border/50 p-2 max-lg:hidden">
+              <div className="flex w-full items-center gap-2 rounded-md p-2 hover:bg-sidebar-accent cursor-pointer transition-colors">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
+                  CN
+                </div>
+                <div className="flex flex-col text-left text-sm leading-tight truncate">
+                  <span className="font-semibold truncate">{currentUser.name}</span>
+                  <span className="text-xs text-muted-foreground truncate">{currentUser.role}</span>
+                </div>
+                <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+              </div>
+            </div>
+          </div>
         </aside>
 
-        <div className="min-w-0">
-          <header className="sticky top-0 z-30 border-b bg-background/90 px-6 py-4 backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Workspace</p>
-                <h1 className="text-xl font-semibold">{current.title}</h1>
-                <p className="text-sm text-muted-foreground/90">{current.desc}</p>
+        <div className="flex min-w-0 flex-col p-2 max-lg:p-0">
+          <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border bg-background shadow-sm max-lg:rounded-none max-lg:border-0 relative">
+            <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/90 px-4 py-3 backdrop-blur max-lg:px-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:bg-muted hidden lg:flex" 
+                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  >
+                    <PanelLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="hidden h-4 w-[1px] bg-border lg:block" />
+                </div>
+                <div>
+                  <h1 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="max-sm:hidden">{current.title}</span>
+                  </h1>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="relative hidden w-64 lg:block">
+                <div className="relative hidden w-64 md:block">
                   <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="全局搜索（学员/订单）" />
+                  <Input className="h-9 pl-8 bg-muted/50 border-transparent hover:bg-muted/80 focus:bg-background transition-colors" placeholder="搜索（学员/订单）" />
                 </div>
-                <Button variant="ghost" size="icon" aria-label="消息通知">
+                <Button variant="ghost" size="icon" aria-label="消息通知" className="h-8 w-8 rounded-full">
                   <Bell className="h-4 w-4" />
                 </Button>
-                <ThemeToggle />
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2">
-                      {currentUser.name}
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>{currentUser.role}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem>个人中心</DropdownMenuItem>
-                    <DropdownMenuItem>修改密码</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem>退出登录</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <div className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-accent/50">
+                  <ThemeToggle />
+                </div>
               </div>
-            </div>
-          </header>
-          <main className="p-6">{children}</main>
+            </header>
+            <main className="flex-1 overflow-auto p-6 bg-background">
+              {children}
+            </main>
+          </div>
         </div>
       </div>
     </div>
