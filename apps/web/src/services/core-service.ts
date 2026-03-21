@@ -66,10 +66,19 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
   return res.json() as Promise<T>;
 }
 
+function getOperatorHeaders(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return { "x-role": "admin", "x-operator": "web-server" };
+  }
+  const role = window.localStorage.getItem("amilyhub.role") || "admin";
+  const operator = window.localStorage.getItem("amilyhub.operator") || "web-user";
+  return { "x-role": role, "x-operator": operator };
+}
+
 async function sendJson<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getOperatorHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 403) throw new Error("FORBIDDEN");
@@ -149,7 +158,7 @@ export async function getDashboard(): Promise<ServiceResult<DashboardData>> {
       ],
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -183,7 +192,7 @@ export async function getStudents(query: StudentQuery): Promise<ServiceResult<Pa
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -216,7 +225,7 @@ export async function getTeachers(query: TeacherQuery): Promise<ServiceResult<Pa
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -238,7 +247,7 @@ export async function createTeacher(input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -258,7 +267,7 @@ export async function updateTeacher(teacherId: string, input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -268,7 +277,7 @@ export async function updateTeacherStatus(teacherId: string, status: "在职" | 
     const r = await sendJson<ApiObj<any>>("PATCH", `/teachers/${encodeURIComponent(teacherId)}/status`, { status });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -300,7 +309,7 @@ export async function getClasses(query: ClassQuery): Promise<ServiceResult<PageR
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -310,7 +319,7 @@ export async function getClassProfile(classId: string): Promise<ServiceResult<an
     const r = await getJson<ApiObj<any>>(`/classes/${encodeURIComponent(classId)}/profile`);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -346,7 +355,7 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -372,7 +381,7 @@ export async function createCourse(input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -398,7 +407,7 @@ export async function updateCourse(courseId: string, input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -408,7 +417,7 @@ export async function deleteCourse(courseId: string): Promise<ServiceResult<any>
     const r = await sendJson<ApiObj<any>>("DELETE", `/courses/${encodeURIComponent(courseId)}`);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -444,7 +453,7 @@ export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageRe
       total: filtered.length,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -454,7 +463,7 @@ export async function getStudentProfile(studentId: string): Promise<ServiceResul
     const r = await getJson<ApiObj<any>>(`/students/${encodeURIComponent(studentId)}/profile`);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -479,7 +488,7 @@ export async function createStudent(input: {
     const r = await sendJson<ApiObj<any>>("POST", "/students", payload);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -502,7 +511,7 @@ export async function updateStudent(studentId: string, input: {
     const r = await sendJson<ApiObj<any>>("PUT", `/students/${encodeURIComponent(studentId)}`, payload);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -512,7 +521,7 @@ export async function deleteStudent(studentId: string, cascade = false): Promise
     const r = await sendJson<ApiObj<any>>("DELETE", `/students/${encodeURIComponent(studentId)}?cascade=${cascade ? "true" : "false"}`);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -534,7 +543,7 @@ export async function enrollStudent(studentId: string, input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -554,7 +563,7 @@ export async function createRenewalOrder(input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -585,7 +594,7 @@ export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -607,7 +616,7 @@ export async function createScheduleEvent(input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     if (e instanceof ApiRequestError && e.code === "SCHEDULE_CONFLICT") {
       return { kind: "conflict", message: e.message || "排课冲突" };
     }
@@ -650,7 +659,7 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
       total: r.page.total,
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -660,7 +669,7 @@ export async function getAttendanceDetail(sourceId: string): Promise<ServiceResu
     const r = await getJson<ApiObj<any>>(`/rollcalls/${encodeURIComponent(sourceId)}`);
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -707,7 +716,7 @@ export async function getFinanceRecords(
       },
     });
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -737,7 +746,7 @@ export async function createFinanceRecord(input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -765,7 +774,7 @@ export async function updateFinanceRecord(sourceRecordId: string, input: {
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }
@@ -778,7 +787,7 @@ export async function voidFinanceRecord(sourceRecordId: string, input?: { operat
     });
     return ok(r.data);
   } catch (e) {
-    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;
   }
 }

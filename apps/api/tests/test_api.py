@@ -173,7 +173,7 @@ def test_order_renewal_and_order_list_student_name():
         'receivable_cents': 10000,
         'received_cents': 8000,
         'arrears_cents': 2000,
-    })
+    }, headers={"x-role": "admin", "x-operator": "qa_admin"})
     assert renewal.status_code == 201, renewal.text
     source_order_id = renewal.json()['data']['source_order_id']
 
@@ -191,7 +191,7 @@ def test_schedule_events_create_and_conflict():
         'start_time': '2026-03-22T09:00:00+13:00',
         'end_time': '2026-03-22T10:00:00+13:00',
         'room_name': 'R1'
-    })
+    }, headers={"x-role": "admin", "x-operator": "qa_admin"})
     assert ok_create.status_code == 201, ok_create.text
 
     conflict = client.post('/api/v1/schedule-events', json={
@@ -200,7 +200,7 @@ def test_schedule_events_create_and_conflict():
         'start_time': '2026-03-22T09:30:00+13:00',
         'end_time': '2026-03-22T10:30:00+13:00',
         'room_name': 'R2'
-    })
+    }, headers={"x-role": "admin", "x-operator": "qa_admin"})
     assert conflict.status_code == 409
     assert conflict.json()['error']['code'] == 'SCHEDULE_CONFLICT'
 
@@ -258,14 +258,15 @@ def test_order_void_and_refund_event_logging():
     })
     assert create.status_code == 201, create.text
 
-    v1 = client.post(f'/api/v1/orders/{oid}/void', json={'operator': 'qa_user', 'reason': 'dup_order'})
-    v2 = client.post(f'/api/v1/orders/{oid}/void', json={'operator': 'qa_user', 'reason': 'dup_order'})
+    headers = {"x-role": "admin", "x-operator": "qa_user"}
+    v1 = client.post(f'/api/v1/orders/{oid}/void', json={'operator': 'qa_user', 'reason': 'dup_order'}, headers=headers)
+    v2 = client.post(f'/api/v1/orders/{oid}/void', json={'operator': 'qa_user', 'reason': 'dup_order'}, headers=headers)
     assert v1.status_code == 200, v1.text
     assert v2.status_code == 200, v2.text
     assert v1.json()['data']['order_state'] == '已作废'
 
-    r1 = client.post(f'/api/v1/orders/{oid}/refund', json={'operator': 'qa_user', 'reason': 'user_cancel'})
-    r2 = client.post(f'/api/v1/orders/{oid}/refund', json={'operator': 'qa_user', 'reason': 'user_cancel'})
+    r1 = client.post(f'/api/v1/orders/{oid}/refund', json={'operator': 'qa_user', 'reason': 'user_cancel'}, headers=headers)
+    r2 = client.post(f'/api/v1/orders/{oid}/refund', json={'operator': 'qa_user', 'reason': 'user_cancel'}, headers=headers)
     assert r1.status_code == 200, r1.text
     assert r2.status_code == 200, r2.text
     assert r1.json()['data']['order_type'] == '退费'
@@ -363,13 +364,14 @@ def test_rollcall_confirm_leave_absent_revoke_are_consistent():
 def test_teacher_crud_and_status_happy_path():
     tid = _uid('tch')
     name = f'Teacher CRUD {tid}'
+    headers = {"x-role": "admin", "x-operator": "qa_admin"}
     create = client.post('/api/v1/teachers', json={
         'source_teacher_id': tid,
         'name': name,
         'phone': '13800138011',
         'subjects': ['英语'],
         'status': '在职',
-    })
+    }, headers=headers)
     assert create.status_code == 201, create.text
     assert create.json()['data']['source_teacher_id'] == tid
     assert create.json()['data']['status'] == '在职'
@@ -377,12 +379,12 @@ def test_teacher_crud_and_status_happy_path():
     update = client.put(f'/api/v1/teachers/{tid}', json={
         'phone': '13800138022',
         'subjects': ['英语', '数学'],
-    })
+    }, headers=headers)
     assert update.status_code == 200, update.text
     assert update.json()['data']['phone'] == '13800138022'
     assert update.json()['data']['subjects'] == ['英语', '数学']
 
-    disable = client.patch(f'/api/v1/teachers/{tid}/status', json={'status': '停用'})
+    disable = client.patch(f'/api/v1/teachers/{tid}/status', json={'status': '停用'}, headers=headers)
     assert disable.status_code == 200, disable.text
     assert disable.json()['data']['status'] == '停用'
 
@@ -395,12 +397,13 @@ def test_teacher_crud_and_status_happy_path():
 
 def test_teacher_duplicate_and_missing_status_update():
     tid = _uid('tch')
+    headers = {"x-role": "admin", "x-operator": "qa_admin"}
     first = client.post('/api/v1/teachers', json={
         'source_teacher_id': tid,
         'name': f'Teacher Dup {tid}',
         'subjects': ['语文'],
         'status': '在职',
-    })
+    }, headers=headers)
     assert first.status_code == 201, first.text
 
     duplicate = client.post('/api/v1/teachers', json={
@@ -408,17 +411,18 @@ def test_teacher_duplicate_and_missing_status_update():
         'name': f'Teacher Dup2 {tid}',
         'subjects': ['语文'],
         'status': '在职',
-    })
+    }, headers=headers)
     assert duplicate.status_code == 409, duplicate.text
     assert duplicate.json()['error']['code'] == 'TEACHER_EXISTS'
 
-    missing = client.patch(f'/api/v1/teachers/{_uid("tch_missing")}/status', json={'status': '停用'})
+    missing = client.patch(f'/api/v1/teachers/{_uid("tch_missing")}/status', json={'status': '停用'}, headers=headers)
     assert missing.status_code == 404, missing.text
     assert missing.json()['error']['code'] == 'TEACHER_NOT_FOUND'
 
 
 def test_income_expense_write_and_void_happy_path():
     rid = _uid('fin')
+    headers = {"x-role": "admin", "x-operator": "finance_admin"}
     create = client.post('/api/v1/income-expense', json={
         'source_record_id': rid,
         'item_type': '学费',
@@ -429,7 +433,7 @@ def test_income_expense_write_and_void_happy_path():
         'operator': '财务A',
         'remark': '首笔录入',
         'status': '正常',
-    })
+    }, headers=headers)
     assert create.status_code == 201, create.text
     assert create.json()['data']['source_record_id'] == rid
     assert create.json()['data']['status'] == '正常'
@@ -438,12 +442,12 @@ def test_income_expense_write_and_void_happy_path():
         'amount_cents': 13000,
         'payment_method': '转账',
         'remark': '更新备注',
-    })
+    }, headers=headers)
     assert update.status_code == 200, update.text
     assert update.json()['data']['amount_cents'] == 13000
     assert update.json()['data']['payment_method'] == '转账'
 
-    voided = client.post(f'/api/v1/income-expense/{rid}/void', json={'operator': '财务B', 'reason': '录入错误'})
+    voided = client.post(f'/api/v1/income-expense/{rid}/void', json={'operator': '财务B', 'reason': '录入错误'}, headers=headers)
     assert voided.status_code == 200, voided.text
     assert voided.json()['data']['status'] == '作废'
 
@@ -460,10 +464,47 @@ def test_income_expense_invalid_direction_and_void_not_found():
         'direction': 'UNKNOWN',
         'amount_cents': 100,
         'operation_date': '2026-03-22',
-    })
+    }, headers={"x-role": "admin", "x-operator": "finance_admin"})
     assert invalid.status_code == 422, invalid.text
     assert invalid.json()['error']['code'] == 'INVALID_DIRECTION'
 
-    missing = client.post(f'/api/v1/income-expense/{_uid("fin_missing")}/void', json={'reason': 'x'})
+    missing = client.post(f'/api/v1/income-expense/{_uid("fin_missing")}/void', json={'reason': 'x'}, headers={"x-role": "admin", "x-operator": "finance_admin"})
     assert missing.status_code == 404, missing.text
     assert missing.json()['error']['code'] == 'INCOME_EXPENSE_NOT_FOUND'
+
+
+def test_rbac_forbidden_and_audit_log_written():
+    tid = _uid('tch_rbac')
+    deny = client.post('/api/v1/teachers', json={
+        'source_teacher_id': tid,
+        'name': 'RBAC Deny Teacher',
+        'status': '在职',
+    }, headers={"x-role": "staff", "x-operator": "staff_user"})
+    assert deny.status_code == 403, deny.text
+    deny_payload = deny.json()
+    assert deny_payload['error']['code'] == 'FORBIDDEN'
+    assert deny_payload['error']['message'] == '无权限执行该操作'
+
+    allow_id = _uid('tch_rbac_ok')
+    allow = client.post('/api/v1/teachers', json={
+        'source_teacher_id': allow_id,
+        'name': 'RBAC Allow Teacher',
+        'status': '在职',
+    }, headers={"x-role": "admin", "x-operator": "admin_user"})
+    assert allow.status_code == 201, allow.text
+
+    from app.db import fetch_one
+    audit = fetch_one(
+        """
+        select operator, role, action, resource_type, resource_id
+        from amilyhub.audit_logs
+        where action='teachers.create' and resource_id=%s
+        order by id desc
+        limit 1
+        """,
+        (allow_id,),
+    )
+    assert audit is not None
+    assert audit['operator'] == 'admin_user'
+    assert audit['role'] == 'admin'
+    assert audit['resource_type'] == 'teacher'

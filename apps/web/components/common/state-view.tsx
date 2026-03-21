@@ -46,7 +46,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   );
 }
 
-export function ForbiddenState({ message = "暂无权限访问该模块" }: { message?: string }) {
+export function ForbiddenState({ message = "无权限执行该操作" }: { message?: string }) {
   return (
     <Card>
       <CardContent className="space-y-2 p-8 text-center">

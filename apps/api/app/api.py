@@ -3,6 +3,7 @@ from datetime import date
 import time
 import random
 from decimal import Decimal
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
@@ -41,6 +42,81 @@ class ApiError(Exception):
         self.code = code
         self.message = message
         self.details = details
+
+
+@dataclass
+class OperatorContext:
+    operator: str
+    role: str
+
+
+ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "admin": {"teachers:write", "finance:write", "orders:write", "schedule:write"},
+    "manager": {"teachers:write", "orders:write", "schedule:write"},
+    "staff": set(),
+}
+
+
+def get_operator_context(request: Request) -> OperatorContext:
+    role = (request.headers.get("x-role") or "admin").strip().lower()
+    if role not in ROLE_PERMISSIONS:
+        role = "staff"
+    operator = (request.headers.get("x-operator") or "unknown").strip() or "unknown"
+    return OperatorContext(operator=operator, role=role)
+
+
+def require_permission(request: Request, permission: str) -> OperatorContext:
+    ctx = get_operator_context(request)
+    if permission not in ROLE_PERMISSIONS.get(ctx.role, set()):
+        raise ApiError(403, "FORBIDDEN", "无权限执行该操作")
+    return ctx
+
+
+def ensure_audit_logs_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                create table if not exists amilyhub.audit_logs (
+                  id bigserial primary key,
+                  operator text,
+                  role text,
+                  action text not null,
+                  resource_type text not null,
+                  resource_id text,
+                  payload jsonb not null default '{}'::jsonb,
+                  created_at timestamptz default now()
+                )
+                """
+            )
+            cur.execute("create index if not exists idx_audit_logs_resource on amilyhub.audit_logs(resource_type, resource_id)")
+            conn.commit()
+
+
+def write_audit_log(
+    *,
+    operator: str,
+    role: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    payload: dict[str, Any] | None = None,
+):
+    try:
+        ensure_audit_logs_table()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into amilyhub.audit_logs(operator, role, action, resource_type, resource_id, payload)
+                    values (%s, %s, %s, %s, %s, %s::jsonb)
+                    """,
+                    (operator, role, action, resource_type, resource_id, json.dumps(payload or {}, ensure_ascii=False, default=str)),
+                )
+                conn.commit()
+    except Exception:
+        # 审计日志失败时降级，不阻断主业务流程。
+        pass
 
 
 class PageMeta(BaseModel):
@@ -1091,7 +1167,8 @@ def list_teachers(
 
 
 @app.post("/api/v1/teachers", response_model=ObjectResponse, status_code=201)
-def create_teacher(payload: TeacherCreateRequest):
+def create_teacher(payload: TeacherCreateRequest, request: Request):
+    ctx = require_permission(request, "teachers:write")
     source_teacher_id = (payload.source_teacher_id or "").strip() or generate_teacher_id()
     subjects = normalize_subjects(payload.subjects)
     status = normalize_teacher_status(payload.status)
@@ -1120,11 +1197,21 @@ def create_teacher(payload: TeacherCreateRequest):
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="teachers.create",
+        resource_type="teacher",
+        resource_id=source_teacher_id,
+        payload={"request": payload.model_dump(mode="json"), "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.put("/api/v1/teachers/{source_teacher_id}", response_model=ObjectResponse)
-def update_teacher(source_teacher_id: str, payload: TeacherUpdateRequest):
+def update_teacher(source_teacher_id: str, payload: TeacherUpdateRequest, request: Request):
+    ctx = require_permission(request, "teachers:write")
     updates = payload.model_dump(mode="json", exclude_none=True)
     if "status" in updates:
         updates["status"] = normalize_teacher_status(updates["status"])
@@ -1169,11 +1256,21 @@ def update_teacher(source_teacher_id: str, payload: TeacherUpdateRequest):
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="teachers.update",
+        resource_type="teacher",
+        resource_id=source_teacher_id,
+        payload={"request": updates, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.patch("/api/v1/teachers/{source_teacher_id}/status", response_model=ObjectResponse)
-def update_teacher_status(source_teacher_id: str, payload: TeacherStatusUpdateRequest):
+def update_teacher_status(source_teacher_id: str, payload: TeacherStatusUpdateRequest, request: Request):
+    ctx = require_permission(request, "teachers:write")
     status = normalize_teacher_status(payload.status)
     raw_patch = {"status": status}
     with get_conn() as conn:
@@ -1194,7 +1291,16 @@ def update_teacher_status(source_teacher_id: str, payload: TeacherStatusUpdateRe
                 raise ApiError(404, "TEACHER_NOT_FOUND", "teacher not found")
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="teachers.status_change",
+        resource_type="teacher",
+        resource_id=source_teacher_id,
+        payload={"status": status, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.get("/api/v1/orders", response_model=ListResponse)
@@ -1300,7 +1406,8 @@ def create_order(payload: OrderUpsertRequest):
 
 
 @app.post("/api/v1/orders/renewal", response_model=ObjectResponse, status_code=201)
-def create_order_renewal(payload: OrderRenewalRequest):
+def create_order_renewal(payload: OrderRenewalRequest, request: Request):
+    ctx = require_permission(request, "orders:write")
     ensure_order_events_table()
     assert_student_exists(payload.source_student_id)
     source_order_id = f"RNEW{int(time.time() * 1000)}{random.randint(100,999)}"
@@ -1333,7 +1440,16 @@ def create_order_renewal(payload: OrderRenewalRequest):
             cols = [d.name for d in cur.description]
             create_order_event(cur, source_order_id, "renewal", raw)
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="orders.renewal",
+        resource_type="order",
+        resource_id=source_order_id,
+        payload={"request": raw, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.put("/api/v1/orders/{source_order_id}", response_model=ObjectResponse)
@@ -1371,7 +1487,8 @@ def update_order(source_order_id: str, payload: OrderUpdateRequest):
 
 
 @app.post("/api/v1/orders/{source_order_id}/void", response_model=ObjectResponse)
-def void_order(source_order_id: str, payload: OrderActionRequest | None = None):
+def void_order(source_order_id: str, request: Request, payload: OrderActionRequest | None = None):
+    ctx = require_permission(request, "orders:write")
     ensure_order_events_table()
     operator = (payload.operator if payload else None) or "system"
     reason = (payload.reason if payload else None) or "manual_void"
@@ -1405,11 +1522,21 @@ def void_order(source_order_id: str, payload: OrderActionRequest | None = None):
             if not has_order_event(cur, source_order_id, "void"):
                 create_order_event(cur, source_order_id, "void", event_payload, operator=operator, reason=reason)
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="orders.void",
+        resource_type="order",
+        resource_id=source_order_id,
+        payload={"request": event_payload, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.post("/api/v1/orders/{source_order_id}/refund", response_model=ObjectResponse)
-def refund_order(source_order_id: str, payload: OrderActionRequest | None = None):
+def refund_order(source_order_id: str, request: Request, payload: OrderActionRequest | None = None):
+    ctx = require_permission(request, "orders:write")
     ensure_order_events_table()
     operator = (payload.operator if payload else None) or "system"
     reason = (payload.reason if payload else None) or "manual_refund"
@@ -1445,7 +1572,16 @@ def refund_order(source_order_id: str, payload: OrderActionRequest | None = None
             if not has_order_event(cur, source_order_id, "refund"):
                 create_order_event(cur, source_order_id, "refund", event_payload, operator=operator, reason=reason)
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="orders.refund",
+        resource_type="order",
+        resource_id=source_order_id,
+        payload={"request": event_payload, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.get("/api/v1/hour-cost-flows", response_model=ListResponse)
@@ -1489,7 +1625,8 @@ def list_hour_cost_flows(
 
 
 @app.post("/api/v1/income-expense", response_model=ObjectResponse, status_code=201)
-def create_income_expense(payload: IncomeExpenseCreateRequest):
+def create_income_expense(payload: IncomeExpenseCreateRequest, request: Request):
+    ctx = require_permission(request, "finance:write")
     source_record_id = (payload.source_record_id or "").strip() or generate_income_expense_id()
     direction = normalize_direction(payload.direction)
     status = normalize_record_status(payload.status)
@@ -1538,11 +1675,21 @@ def create_income_expense(payload: IncomeExpenseCreateRequest):
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="finance.create",
+        resource_type="income_expense",
+        resource_id=source_record_id,
+        payload={"request": payload.model_dump(mode="json"), "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.put("/api/v1/income-expense/{source_record_id}", response_model=ObjectResponse)
-def update_income_expense(source_record_id: str, payload: IncomeExpenseUpdateRequest):
+def update_income_expense(source_record_id: str, payload: IncomeExpenseUpdateRequest, request: Request):
+    ctx = require_permission(request, "finance:write")
     updates = payload.model_dump(mode="json", exclude_none=True)
     if "direction" in updates:
         updates["direction"] = normalize_direction(updates["direction"])
@@ -1628,11 +1775,21 @@ def update_income_expense(source_record_id: str, payload: IncomeExpenseUpdateReq
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="finance.update",
+        resource_type="income_expense",
+        resource_id=source_record_id,
+        payload={"request": updates, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.post("/api/v1/income-expense/{source_record_id}/void", response_model=ObjectResponse)
-def void_income_expense(source_record_id: str, payload: IncomeExpenseVoidRequest | None = None):
+def void_income_expense(source_record_id: str, request: Request, payload: IncomeExpenseVoidRequest | None = None):
+    ctx = require_permission(request, "finance:write")
     operator = ((payload.operator if payload else None) or "system").strip() or "system"
     reason = ((payload.reason if payload else None) or "manual_void").strip() or "manual_void"
     raw_patch = {"status": "作废", "void_operator": operator, "void_reason": reason}
@@ -1665,7 +1822,16 @@ def void_income_expense(source_record_id: str, payload: IncomeExpenseVoidRequest
                 raise ApiError(404, "INCOME_EXPENSE_NOT_FOUND", "income_expense record not found")
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="finance.void",
+        resource_type="income_expense",
+        resource_id=source_record_id,
+        payload={"operator": operator, "reason": reason, "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.get("/api/v1/income-expense", response_model=ListResponse)
@@ -2431,7 +2597,8 @@ def list_schedule_events(
 
 
 @app.post("/api/v1/schedule-events", response_model=ObjectResponse, status_code=201)
-def create_schedule_event(payload: ScheduleEventCreateRequest):
+def create_schedule_event(payload: ScheduleEventCreateRequest, request: Request):
+    ctx = require_permission(request, "schedule:write")
     ensure_schedule_events_table()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -2472,7 +2639,16 @@ def create_schedule_event(payload: ScheduleEventCreateRequest):
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
             conn.commit()
-    return {"ok": True, "data": dict(zip(cols, row))}
+    data = dict(zip(cols, row))
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="schedule.create",
+        resource_type="schedule_event",
+        resource_id=str(data.get("id") or ""),
+        payload={"request": payload.model_dump(mode="json"), "result": data},
+    )
+    return {"ok": True, "data": data}
 
 
 @app.get("/api/v1/schedules", response_model=ListResponse)
