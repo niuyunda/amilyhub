@@ -67,8 +67,11 @@ def run():
                 payload = dict(x)
                 payload['pricing_items'] = items
                 cur.execute('''
-                    insert into amilyhub.courses(source_course_id,name,course_type,fee_type,status,pricing_rules,student_num,raw_json)
-                    values(%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    insert into amilyhub.courses(
+                      source_course_id,name,course_type,fee_type,status,
+                      pricing_rules,pricing_items,student_num,raw_source_json,raw_json
+                    )
+                    values(%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb)
                 ''',(
                     str(x.get('id')),
                     x.get('name') or '-',
@@ -76,7 +79,9 @@ def run():
                     '按课时' if (x.get('feeType') or '')=='CLASS_HOUR' else '按周期',
                     map_status(x.get('status')),
                     pricing_lines(items),
+                    json.dumps(items,ensure_ascii=False),
                     int(x.get('studentNum') or 0),
+                    json.dumps(x,ensure_ascii=False),
                     json.dumps(payload,ensure_ascii=False),
                 ))
             conn.commit()

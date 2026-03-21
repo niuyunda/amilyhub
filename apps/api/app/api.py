@@ -209,11 +209,33 @@ def ensure_courses_table():
                   fee_type text,
                   status text,
                   pricing_rules text,
+                  pricing_items jsonb default '[]'::jsonb,
                   student_num int default 0,
+                  raw_source_json jsonb,
                   raw_json jsonb default '{}'::jsonb,
                   created_at timestamptz default now(),
                   updated_at timestamptz default now()
                 )
+                """
+            )
+            cur.execute("alter table amilyhub.courses add column if not exists pricing_items jsonb default '[]'::jsonb")
+            cur.execute("alter table amilyhub.courses add column if not exists raw_source_json jsonb")
+
+            # Backfill once for old rows: keep source snapshot in raw_source_json,
+            # move editable pricing to dedicated pricing_items.
+            cur.execute(
+                """
+                update amilyhub.courses
+                set pricing_items = coalesce(pricing_items, raw_json->'pricing_items', '[]'::jsonb)
+                where pricing_items is null
+                """
+            )
+            cur.execute(
+                """
+                update amilyhub.courses
+                set raw_source_json = raw_json
+                where raw_source_json is null
+                  and source_course_id not like 'LOCAL_%'
                 """
             )
             conn.commit()
@@ -975,7 +997,7 @@ def list_courses(
           coalesce(course_type,'一对多') as course_type,
           coalesce(fee_type,'按课时') as charge_type,
           coalesce(pricing_rules,'-') as pricing_rules,
-          coalesce(raw_json->'pricing_items','[]'::jsonb) as pricing_items,
+          coalesce(pricing_items,'[]'::jsonb) as pricing_items,
           coalesce(student_num,0) as active_students,
           coalesce(status,'启用') as status
         from amilyhub.courses
@@ -1000,11 +1022,25 @@ def create_course(payload: CourseUpsertRequest):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                insert into amilyhub.courses(source_course_id, name, course_type, fee_type, status, pricing_rules, student_num, raw_json)
-                values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                insert into amilyhub.courses(
+                  source_course_id, name, course_type, fee_type, status,
+                  pricing_rules, pricing_items, student_num, raw_source_json, raw_json
+                )
+                values (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb)
                 returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
                 """,
-                (src, payload.name, payload.course_type, payload.fee_type, payload.status, pricing_rules, payload.student_num, json.dumps(raw, ensure_ascii=False)),
+                (
+                    src,
+                    payload.name,
+                    payload.course_type,
+                    payload.fee_type,
+                    payload.status,
+                    pricing_rules,
+                    json.dumps(pricing_items, ensure_ascii=False),
+                    payload.student_num,
+                    "null",
+                    json.dumps(raw, ensure_ascii=False),
+                ),
             )
             row = cur.fetchone(); cols=[d.name for d in cur.description]
             conn.commit()
@@ -1023,11 +1059,30 @@ def update_course(course_id: str, payload: CourseUpsertRequest):
             cur.execute(
                 """
                 update amilyhub.courses
-                set name=%s, course_type=%s, fee_type=%s, status=%s, pricing_rules=%s, student_num=%s, raw_json=%s::jsonb, updated_at=now()
+                set
+                  name=%s,
+                  course_type=%s,
+                  fee_type=%s,
+                  status=%s,
+                  pricing_rules=%s,
+                  pricing_items=%s::jsonb,
+                  student_num=%s,
+                  raw_json=%s::jsonb,
+                  updated_at=now()
                 where id=%s
                 returning id, source_course_id, name, course_type, fee_type, status, pricing_rules, student_num
                 """,
-                (payload.name, payload.course_type, payload.fee_type, payload.status, pricing_rules, payload.student_num, json.dumps(raw, ensure_ascii=False), int(course_id)),
+                (
+                    payload.name,
+                    payload.course_type,
+                    payload.fee_type,
+                    payload.status,
+                    pricing_rules,
+                    json.dumps(pricing_items, ensure_ascii=False),
+                    payload.student_num,
+                    json.dumps(raw, ensure_ascii=False),
+                    int(course_id),
+                ),
             )
             row = cur.fetchone()
             if not row:
