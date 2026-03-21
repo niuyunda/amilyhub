@@ -35,6 +35,10 @@ export interface Student {
   latestClassAt: string;
   remainHours: number;
   className: string;
+  age: number | null;
+  birthday: string;
+  creator: string;
+  createdAt: string;
 }
 
 export interface Teacher {
@@ -55,7 +59,19 @@ export interface ClassRoom {
   campus: string;
   studentCount: number;
   capacity: number;
+  classType: "班课" | "一对一";
   status: "开班中" | "已结班";
+}
+
+export interface CourseItem {
+  id: string;
+  courseName: string;
+  courseType: "一对一" | "一对多";
+  chargeType: string;
+  pricingRules: string;
+  pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
+  activeStudents: number;
+  status: "启用" | "停用";
 }
 
 export interface Order {
@@ -85,6 +101,32 @@ export interface FinanceSummary {
   totalIncomeYuan: number;
   totalExpenseYuan: number;
   netIncomeYuan: number;
+}
+
+export interface ScheduleItem {
+  id: string;
+  viewKey: string;
+  dateTime: string;
+  timeRange: string;
+  className: string;
+  teacherName: string;
+  roomName: string;
+  studentName: string;
+  status: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  className: string;
+  courseName: string;
+  teacherName: string;
+  rollcallTime: string;
+  classTimeRange: string;
+  status: string;
+  teachingHours: number;
+  attendanceSummary: string;
+  consumedAmountYuan: number;
+  studentNames: string;
 }
 
 export interface DashboardData {

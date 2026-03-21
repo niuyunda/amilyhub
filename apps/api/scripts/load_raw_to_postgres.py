@@ -65,6 +65,10 @@ def run():
         if not sidv:
             continue
         sid = str(sidv)
+        name = pick(sb,'name', 'studentName') or pick(r,'name')
+        phone = pick(sb,'phone','mobile') or pick(r,'phone')
+        if (name == 'Order Student' and not phone) or (name == 'P0 Student' and phone == '13900139000'):
+            continue
         cur.execute('''insert into amilyhub.students(source_student_id,name,phone,gender,birthday,status,source_created_at,raw_json)
                        values(%s,%s,%s,%s,%s,%s,%s,%s)
                        on conflict (source_student_id) do update set
@@ -75,7 +79,7 @@ def run():
                          status=excluded.status,
                          source_created_at=excluded.source_created_at,
                          raw_json=excluded.raw_json''',
-                    (sid, pick(sb,'name', 'studentName') or pick(r,'name'), pick(sb,'phone','mobile') or pick(r,'phone'), pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
+                    (sid, name, phone, pick(sb,'genderEnum','gender') or pick(r,'gender'), to_date(pick(sb,'birthday')), pick(sb,'statusEnum','status') or pick(r,'status'), to_date(pick(sb,'created')), json.dumps(r,ensure_ascii=False)))
         n+=1
     cur.execute("insert into amilyhub.import_runs(run_key,dataset,rows_loaded,status) values('20260320','students',%s,'ok')", (n,))
 
