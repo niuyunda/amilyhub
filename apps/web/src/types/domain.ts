@@ -106,14 +106,16 @@ export interface ScheduleItem {
 
 export interface AttendanceRecord {
   id: string;
-  studentName: string;
   className: string;
   courseName: string;
   teacherName: string;
   rollcallTime: string;
   classTimeRange: string;
   status: string;
-  consumedLessons: number;
+  teachingHours: number;
+  attendanceSummary: string;
+  consumedAmountYuan: number;
+  studentNames: string;
 }
 
 export interface DashboardData {

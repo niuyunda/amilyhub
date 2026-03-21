@@ -78,14 +78,14 @@ export default function AttendancePage() {
   }, [selected]);
 
   const columns = useMemo<Array<ColumnDef<AttendanceRecord>>>(() => [
-    { key: "rollcallTime", title: "上课时间" },
-    { key: "classTimeRange", title: "时段" },
-    { key: "className", title: "班级" },
-    { key: "courseName", title: "课程" },
-    { key: "studentName", title: "学员" },
-    { key: "teacherName", title: "老师" },
-    { key: "consumedLessons", title: "消课" },
-    { key: "status", title: "点名状态", render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge> },
+    { key: "rollcallTime", title: "点名时间" },
+    { key: "className", title: "班级名称" },
+    { key: "courseName", title: "授课课程" },
+    { key: "teacherName", title: "上课老师" },
+    { key: "teachingHours", title: "授课课时" },
+    { key: "attendanceSummary", title: "实到人数" },
+    { key: "consumedAmountYuan", title: "课消金额(¥)" },
+    { key: "status", title: "状态", render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge> },
   ], []);
 
   return (
@@ -106,8 +106,8 @@ export default function AttendancePage() {
               <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="已点名">已点名</SelectItem>
-                <SelectItem value="未点名">未点名</SelectItem>
+                <SelectItem value="正常">正常</SelectItem>
+                <SelectItem value="已作废">已作废</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={() => void load(1)}>查询</Button>
@@ -130,25 +130,26 @@ export default function AttendancePage() {
       <DetailSheet
         open={Boolean(selected)}
         onOpenChange={(open) => { if (!open) setSelected(null); }}
-        title={selected ? `上课详情 · ${selected.studentName}` : "上课详情"}
+        title={selected ? `上课详情 · ${selected.className}` : "上课详情"}
       >
         {selected ? (
           <div className="space-y-2 text-sm">
             <p><span className="text-muted-foreground">记录ID：</span>{selected.id}</p>
-            <p><span className="text-muted-foreground">上课时间：</span>{selected.rollcallTime}</p>
-            <p><span className="text-muted-foreground">时段：</span>{selected.classTimeRange}</p>
-            <p><span className="text-muted-foreground">学员：</span>{selected.studentName}</p>
+            <p><span className="text-muted-foreground">点名时间：</span>{selected.rollcallTime}</p>
             <p><span className="text-muted-foreground">班级：</span>{selected.className}</p>
             <p><span className="text-muted-foreground">课程：</span>{selected.courseName}</p>
             <p><span className="text-muted-foreground">老师：</span>{selected.teacherName}</p>
-            <p><span className="text-muted-foreground">点名状态：</span>{selected.status}</p>
-            <p><span className="text-muted-foreground">消课：</span>{selected.consumedLessons}</p>
+            <p><span className="text-muted-foreground">状态：</span>{selected.status}</p>
+            <p><span className="text-muted-foreground">授课课时：</span>{selected.teachingHours}</p>
+            <p><span className="text-muted-foreground">实到人数：</span>{selected.attendanceSummary}</p>
+            <p><span className="text-muted-foreground">课消金额：</span>¥{selected.consumedAmountYuan}</p>
+            <p><span className="text-muted-foreground">学员名单：</span>{selected.studentNames}</p>
             {detail ? (
               <div className="rounded border p-2">
                 <p className="mb-1 text-xs text-muted-foreground">明细</p>
-                <p>课耗（购买）：{String(detail["checked_purchase_lessons"] ?? 0)}</p>
-                <p>课耗（赠送）：{String(detail["checked_gift_lessons"] ?? 0)}</p>
-                <p>点名日期：{String(detail["checked_date"] ?? "-")}</p>
+                <p>实到人数：{String(detail["attendance_summary"] ?? "-")}</p>
+                <p>总学员数：{String(detail["total_students"] ?? "-")}</p>
+                <p>sourceIds：{Array.isArray(detail["source_ids"]) ? (detail["source_ids"] as string[]).join(", ") : "-"}</p>
               </div>
             ) : null}
           </div>

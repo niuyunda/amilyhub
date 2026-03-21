@@ -365,14 +365,16 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
     return ok({
       items: r.data.map((x) => ({
         id: String(x.source_row_hash ?? x.id ?? "-"),
-        studentName: x.student_name ?? "-",
         className: x.class_name ?? "-",
         courseName: x.course_name ?? "-",
         teacherName: String(x.teacher_name ?? "-").replace(/[\[\]"]/g, ""),
         rollcallTime: formatDateTime(x.rollcall_time),
         classTimeRange: x.class_time_range ?? "-",
         status: x.status ?? "-",
-        consumedLessons: Number(x.cost_amount_cents ?? 0) / 100,
+        teachingHours: Number(x.teaching_hours ?? 0),
+        attendanceSummary: x.attendance_summary ?? "-",
+        consumedAmountYuan: Number(x.cost_amount_cents ?? 0) / 100,
+        studentNames: x.student_names ?? "-",
       })),
       page: r.page.page,
       pageSize: r.page.page_size,

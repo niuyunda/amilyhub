@@ -1143,8 +1143,8 @@ def list_rollcalls(
     page, page_size, offset = pager(page, page_size)
     clauses, params = ["coalesce(h.raw_json->>'classId','') <> ''"], []
     if q:
-        clauses.append("(coalesce(h.raw_json->>'studentName','') ilike %s or coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','') ilike %s or coalesce(h.raw_json->>'className','') ilike %s)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append("(coalesce(h.raw_json->>'studentName','') ilike %s or coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','') ilike %s or coalesce(h.raw_json->>'className','') ilike %s or coalesce(h.raw_json->>'courseName','') ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if student_name:
         clauses.append("coalesce(h.raw_json->>'studentName','') ilike %s")
         params.append(f"%{student_name}%")
@@ -1155,51 +1155,77 @@ def list_rollcalls(
         clauses.append("coalesce(h.raw_json->>'className','') ilike %s")
         params.append(f"%{class_name}%")
     if status:
-        if status == "已点名":
+        if status in ("正常", "已点名"):
             clauses.append("coalesce(h.raw_json->>'state','') = 'VALID'")
-        elif status == "已作废":
+        elif status in ("已作废", "未点名"):
             clauses.append("coalesce(h.raw_json->>'state','') = 'INVALID'")
         else:
             clauses.append("coalesce(h.raw_json->>'state','') = %s")
             params.append(status)
     if date:
-        clauses.append("to_char(h.checked_at at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
+        clauses.append("to_char(coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
         params.append(date)
 
     cond = " where " + " and ".join(clauses)
 
     total = fetch_one(
         f"""
-        select count(*) as c
-        from amilyhub.hour_cost_flows h
-        {cond}
+        with grouped as (
+          select
+            concat_ws('||',
+              coalesce(h.raw_json->>'classId', ''),
+              coalesce(h.raw_json->>'checkedDate', ''),
+              coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName', ''),
+              coalesce(h.raw_json->>'courseName', '')
+            ) as session_id
+          from amilyhub.hour_cost_flows h
+          {cond}
+          group by 1
+        )
+        select count(*) as c from grouped
         """,
         tuple(params),
     )
 
     rows = fetch_rows(
         f"""
+        with base as (
+          select
+            concat_ws('||',
+              coalesce(h.raw_json->>'classId', ''),
+              coalesce(h.raw_json->>'checkedDate', ''),
+              coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName', ''),
+              coalesce(h.raw_json->>'courseName', '')
+            ) as session_id,
+            coalesce(h.raw_json->>'className', '-') as class_name,
+            coalesce(h.raw_json->>'courseName', '-') as course_name,
+            coalesce(h.raw_json->>'teacherNames', h.raw_json->>'teacherName', '-') as teacher_name,
+            coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
+            coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0) as checked_lessons,
+            coalesce((h.raw_json->>'checkedCost')::numeric,0) as checked_cost,
+            coalesce(h.raw_json->>'state','') as row_state,
+            coalesce(h.raw_json->>'studentName','-') as student_name
+          from amilyhub.hour_cost_flows h
+          {cond}
+        )
         select
-          h.id,
-          h.source_id as source_row_hash,
-          coalesce(h.raw_json->>'studentName','-') as student_name,
-          coalesce(h.raw_json->>'className','-') as class_name,
-          coalesce(h.raw_json->>'courseName','-') as course_name,
-          coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
-          coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
-          to_char(coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) at time zone 'Pacific/Auckland', 'HH24:MI') as class_time_range,
-          case
-            when coalesce(h.raw_json->>'state','') = 'VALID' then '已点名'
-            when coalesce(h.raw_json->>'state','') = 'INVALID' then '已作废'
-            else '-'
-          end as status,
-          (coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0)) * 100 as cost_amount_cents,
-          h.raw_json->>'rollCallTeacherId' as roll_call_teacher_id,
-          h.raw_json->>'classId' as class_id,
-          h.raw_json->>'courseId' as course_id
-        from amilyhub.hour_cost_flows h
-        {cond}
-        order by h.checked_at desc nulls last, h.id desc
+          session_id as source_row_hash,
+          '-'::text as student_name,
+          max(class_name) as class_name,
+          max(course_name) as course_name,
+          max(teacher_name) as teacher_name,
+          max(rollcall_time) as rollcall_time,
+          '-'::text as class_time_range,
+          case when bool_or(row_state = 'INVALID') then '已作废' else '正常' end as status,
+          (coalesce(sum(checked_cost), 0) * 100)::bigint as cost_amount_cents,
+          max(checked_lessons) as teaching_hours,
+          concat(sum(case when row_state = 'VALID' then 1 else 0 end)::text, '/', count(*)::text) as attendance_summary,
+          count(*)::int as total_students,
+          sum(case when row_state = 'VALID' then 1 else 0 end)::int as actual_students,
+          string_agg(student_name, '、' order by student_name) as student_names
+        from base
+        group by session_id
+        order by max(rollcall_time) desc nulls last
         limit %s offset %s
         """,
         tuple(params + [page_size, offset]),
@@ -1209,32 +1235,50 @@ def list_rollcalls(
 
 @app.get("/api/v1/rollcalls/{source_id}", response_model=ObjectResponse)
 def get_rollcall_detail(source_id: str):
+    parts = source_id.split("||", 3)
+    if len(parts) != 4:
+        raise ApiError(404, "ROLLCALL_NOT_FOUND", "rollcall not found")
+
+    class_id, checked_date, teacher_name, course_name = parts
+
     row = fetch_one(
         """
+        with base as (
+          select
+            coalesce(h.raw_json->>'className','-') as class_name,
+            coalesce(h.raw_json->>'courseName','-') as course_name,
+            coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
+            coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
+            coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0) as checked_lessons,
+            coalesce((h.raw_json->>'checkedCost')::numeric,0) as checked_cost,
+            coalesce(h.raw_json->>'state','') as row_state,
+            coalesce(h.raw_json->>'studentName','-') as student_name,
+            h.source_id,
+            h.raw_json
+          from amilyhub.hour_cost_flows h
+          where coalesce(h.raw_json->>'classId','')=%s
+            and coalesce(h.raw_json->>'checkedDate','')=%s
+            and coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','')=%s
+            and coalesce(h.raw_json->>'courseName','')=%s
+        )
         select
-          h.id,
-          h.source_id,
-          coalesce(h.raw_json->>'studentName','-') as student_name,
-          coalesce(h.raw_json->>'className','-') as class_name,
-          coalesce(h.raw_json->>'courseName','-') as course_name,
-          coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
-          coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
-          coalesce(h.raw_json->>'checkedDate','-') as checked_date,
-          to_char(coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) at time zone 'Pacific/Auckland', 'HH24:MI') as class_time_range,
-          case
-            when coalesce(h.raw_json->>'state','') = 'VALID' then '已点名'
-            when coalesce(h.raw_json->>'state','') = 'INVALID' then '已作废'
-            else '-'
-          end as status,
-          coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) as checked_purchase_lessons,
-          coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0) as checked_gift_lessons,
-          h.raw_json
-        from amilyhub.hour_cost_flows h
-        where h.source_id=%s
+          max(class_name) as class_name,
+          max(course_name) as course_name,
+          max(teacher_name) as teacher_name,
+          max(rollcall_time) as rollcall_time,
+          case when bool_or(row_state = 'INVALID') then '已作废' else '正常' end as status,
+          max(checked_lessons) as teaching_hours,
+          (coalesce(sum(checked_cost), 0) * 100)::bigint as cost_amount_cents,
+          sum(case when row_state = 'VALID' then 1 else 0 end)::int as actual_students,
+          count(*)::int as total_students,
+          concat(sum(case when row_state = 'VALID' then 1 else 0 end)::text, '/', count(*)::text) as attendance_summary,
+          string_agg(student_name, '、' order by student_name) as student_names,
+          array_agg(source_id order by source_id) as source_ids
+        from base
         """,
-        (source_id,),
+        (class_id, checked_date, teacher_name, course_name),
     )
-    if not row:
+    if not row or not row.get("total_students"):
         raise ApiError(404, "ROLLCALL_NOT_FOUND", "rollcall not found")
     return {"ok": True, "data": row}
 
