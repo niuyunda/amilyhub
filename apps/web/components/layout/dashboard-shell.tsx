@@ -55,7 +55,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 <li key={item.key} className="relative min-w-0 group/menu-item">
                   <Link
                     href={item.href}
-                    className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-primary/90 active:text-primary-foreground disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-primary/90 data-[active=true]:font-medium data-[active=true]:text-primary-foreground"
+                    className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-primary/90 data-[active=true]:hover:bg-primary/90 data-[active=true]:font-medium data-[active=true]:text-primary-foreground"
                     data-active={active}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
