@@ -245,10 +245,10 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
         pricingRules: x.pricing_rules ?? "-",
         pricingItems: Array.isArray(x.pricing_items)
           ? x.pricing_items.map((p: any) => ({
-              name: String(p.name ?? ""),
-              quantity: Number(p.quantity ?? 0),
-              totalPrice: Number(p.totalPrice ?? 0),
-            }))
+            name: String(p.name ?? ""),
+            quantity: Number(p.quantity ?? 0),
+            totalPrice: Number(p.totalPrice ?? 0),
+          }))
           : undefined,
         activeStudents: Number(x.active_students ?? 0),
         status: x.status === "停用" ? "停用" : "启用",
@@ -442,6 +442,26 @@ export async function enrollStudent(studentId: string, input: {
       order_type: input.orderType ?? "报名",
       receivable_cents: input.receivableCents,
       received_cents: input.receivedCents,
+      arrears_cents: input.arrearsCents,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createRenewalOrder(input: {
+  studentId: string;
+  receivableCents: number;
+  paidCents: number;
+  arrearsCents: number;
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/orders/renewal", {
+      source_student_id: input.studentId,
+      receivable_cents: input.receivableCents,
+      received_cents: input.paidCents,
       arrears_cents: input.arrearsCents,
     });
     return ok(r.data);

@@ -1,4 +1,6 @@
 import json
+import random
+import time
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -218,32 +220,52 @@ def health():
     return {"ok": True, "server_time": row["server_time"] if row else None}
 
 
+# Student filter clause for consistent counting across dashboard and list
+STUDENT_FILTER = "coalesce(name,'') not in ('Order Student','P0 Student') and coalesce(phone,'')<>'' and coalesce(phone,'')<>'13900139000'"
+
+
 @app.get("/api/v1/dashboard/summary", response_model=DashboardSummaryResponse)
 def dashboard_summary():
-    students = as_int(fetch_one("select count(*) as c from amilyhub.students")["c"])
-    active_students = as_int(fetch_one("select count(*) as c from amilyhub.students where status in ('active','ACTIVE','在读','NORMAL','LEARNING')")["c"])
+    # Use consistent student filter across dashboard and list
+    students = as_int(fetch_one(f"select count(*) as c from amilyhub.students where {STUDENT_FILTER}")["c"])
+    active_students = as_int(fetch_one(f"select count(*) as c from amilyhub.students where {STUDENT_FILTER} and status in ('active','ACTIVE','在读','NORMAL','LEARNING')")["c"])
     teachers = as_int(fetch_one("select count(*) as c from amilyhub.teachers")["c"])
-    orders = as_int(fetch_one("select count(*) as c from amilyhub.orders")["c"])
-    hcf = as_int(fetch_one("select count(*) as c from amilyhub.hour_cost_flows")["c"])
+    
+    # Monthly metrics - filter by current month
+    current_month_filter = "date_trunc('month', coalesce(source_created_at, now())) = date_trunc('month', now())"
+    
+    orders = as_int(fetch_one(f"select count(*) as c from amilyhub.orders where {current_month_filter}")["c"])
+    hcf = as_int(fetch_one(f"select count(*) as c from amilyhub.hour_cost_flows where date_trunc('month', coalesce(checked_at, source_created_at, now())) = date_trunc('month', now())")["c"])
     rollcalls = as_int(fetch_one("select count(*) as c from amilyhub.rollcalls")["c"])
-    income_expense = as_int(fetch_one("select count(*) as c from amilyhub.income_expense")["c"])
+    income_expense = as_int(fetch_one(f"select count(*) as c from amilyhub.income_expense where date_trunc('month', coalesce(source_created_at, operation_date::timestamp, now())) = date_trunc('month', now())")["c"])
+    
+    # Monthly income/expense
     income = as_int(
         fetch_one(
-            "select coalesce(sum(case when direction in ('收入','INCOME','IN') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
+            f"""
+            select coalesce(sum(case when direction in ('收入','INCOME','IN') then amount_cents else 0 end),0) as s 
+            from amilyhub.income_expense
+            where date_trunc('month', coalesce(source_created_at, operation_date::timestamp, now())) = date_trunc('month', now())
+            """
         )["s"]
     )
     expense = as_int(
         fetch_one(
-            "select coalesce(sum(case when direction in ('支出','EXPENSE','OUT') then amount_cents else 0 end),0) as s from amilyhub.income_expense"
+            f"""
+            select coalesce(sum(case when direction in ('支出','EXPENSE','OUT') then amount_cents else 0 end),0) as s 
+            from amilyhub.income_expense
+            where date_trunc('month', coalesce(source_created_at, operation_date::timestamp, now())) = date_trunc('month', now())
+            """
         )["s"]
     )
     order_money = fetch_one(
-        """
+        f"""
         select
           coalesce(sum(receivable_cents), 0) as receivable,
           coalesce(sum(received_cents), 0) as received,
           coalesce(sum(arrears_cents), 0) as arrears
         from amilyhub.orders
+        where {current_month_filter}
         """
     )
     return {
@@ -274,9 +296,10 @@ def list_students(
     page_size: int = Query(default=20),
 ):
     page, page_size, offset = pager(page, page_size)
-    clauses, params = [], []
+    # Use consistent filter with dashboard
+    clauses, params = [STUDENT_FILTER], []
     if q:
-        clauses.append("(s.name ilike %s or s.phone ilike %s)")
+        clauses.append("(name ilike %s or phone ilike %s)")
         params.extend([f"%{q}%", f"%{q}%"])
     if status:
         if status == "在读":
@@ -737,6 +760,45 @@ def create_order(payload: OrderUpsertRequest):
     return {"ok": True, "data": dict(zip(cols, row))}
 
 
+@app.post("/api/v1/orders/renewal", response_model=ObjectResponse, status_code=201)
+def create_renewal_order(
+    source_student_id: str = Query(...),
+    receivable_cents: int = Query(default=0),
+    received_cents: int = Query(default=0),
+    arrears_cents: int = Query(default=0),
+):
+    """学员续费订单创建"""
+    assert_student_exists(source_student_id)
+    source_order_id = f"RENEW_{int(time.time() * 1000)}_{random.randint(100,999)}"
+    order_state = "WAITING" if arrears_cents > 0 else "PAID"
+    
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.orders
+                (source_order_id, source_student_id, order_type, order_state, receivable_cents, received_cents, arrears_cents, raw_json)
+                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    source_order_id,
+                    source_student_id,
+                    "RENEW",
+                    order_state,
+                    receivable_cents,
+                    received_cents,
+                    arrears_cents,
+                    json.dumps({"order_type": "RENEW", "source": "student_detail"}, ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
 @app.put("/api/v1/orders/{source_order_id}", response_model=ObjectResponse)
 def update_order(source_order_id: str, payload: OrderUpdateRequest):
     updates = payload.model_dump(mode="json", exclude_none=True)
@@ -1019,6 +1081,43 @@ def list_rollcalls(
         params,
         page,
         page_size,
+    )
+
+
+@app.get("/api/v1/schedules", response_model=ListResponse)
+def list_schedules(
+    view: str | None = Query(default="time"),
+    q: str | None = Query(default=None),
+    date: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=200),
+):
+    """课表接口 - 与上课记录(rollcalls)统一数据源"""
+    clauses, params = [], []
+    if q:
+        clauses.append("(coalesce(class_name,'') ilike %s or coalesce(teacher_name,'') ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if date:
+        clauses.append("left(rollcall_time, 10) = %s")
+        params.append(date)
+
+    return list_query(
+        "rollcalls",
+        """
+        source_row_hash as id,
+        class_name,
+        teacher_name,
+        rollcall_time as date_time,
+        class_time_range as time_range,
+        coalesce(raw_json->>'classRoomName','-') as room_name,
+        coalesce(raw_json->>'studentName','-') as student_name,
+        status
+        """,
+        clauses,
+        params,
+        page,
+        page_size,
+        order_by="rollcall_time desc",
     )
 
 
