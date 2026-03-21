@@ -1,5 +1,6 @@
 import type {
   ClassRoom,
+  CourseItem,
   DashboardData,
   FinanceRecord,
   AttendanceRecord,
@@ -12,6 +13,7 @@ import type {
 import type {
   AttendanceQuery,
   ClassQuery,
+  CourseQuery,
   FinanceQuery,
   OrderQuery,
   PageResult,
@@ -219,6 +221,35 @@ export async function getClassProfile(classId: string): Promise<ServiceResult<an
   try {
     const r = await getJson<ApiObj<any>>(`/classes/${encodeURIComponent(classId)}/profile`);
     return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getCourses(query: CourseQuery): Promise<ServiceResult<PageResult<CourseItem>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/courses", {
+      q: query.keyword,
+      course_type: query.courseType,
+      status: query.status,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.id ?? "-"),
+        courseName: x.course_name ?? "-",
+        courseType: x.course_type === "一对一" ? "一对一" : "一对多",
+        chargeType: x.charge_type ?? "按课时",
+        pricingRules: x.pricing_rules ?? "-",
+        activeStudents: Number(x.active_students ?? 0),
+        status: x.status === "停用" ? "停用" : "启用",
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;

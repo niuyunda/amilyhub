@@ -28,6 +28,11 @@ export interface ClassQuery extends ListQuery {
   classType?: "班课" | "一对一";
 }
 
+export interface CourseQuery extends ListQuery {
+  courseType?: "一对一" | "一对多";
+  status?: "启用" | "停用";
+}
+
 export interface OrderQuery extends ListQuery {
   status?: "待支付" | "已支付" | "已作废";
   orderType?: "报名" | "续费" | "退费";

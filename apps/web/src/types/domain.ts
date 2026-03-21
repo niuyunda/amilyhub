@@ -63,6 +63,16 @@ export interface ClassRoom {
   status: "开班中" | "已结班";
 }
 
+export interface CourseItem {
+  id: string;
+  courseName: string;
+  courseType: "一对一" | "一对多";
+  chargeType: string;
+  pricingRules: string;
+  activeStudents: number;
+  status: "启用" | "停用";
+}
+
 export interface Order {
   id: string;
   orderNo: string;

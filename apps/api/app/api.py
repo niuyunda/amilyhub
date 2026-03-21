@@ -874,6 +874,120 @@ def income_expense_summary(
     }
 
 
+@app.get("/api/v1/courses", response_model=ListResponse)
+def list_courses(
+    q: str | None = Query(default=None),
+    course_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=20),
+):
+    page, page_size, offset = pager(page, page_size)
+    clauses, params = ["g.course_name <> ''"], []
+
+    if q:
+        clauses.append("g.course_name ilike %s")
+        params.append(f"%{q}%")
+    if course_type:
+        clauses.append("g.course_type = %s")
+        params.append(course_type)
+    if status:
+        clauses.append("g.status = %s")
+        params.append(status)
+
+    cond = f" where {' and '.join(clauses)} "
+
+    total_row = fetch_one(
+        f"""
+        with course_base as (
+          select
+            coalesce(nullif(h.raw_json->>'courseName',''), '') as course_name,
+            case
+              when coalesce(h.raw_json->>'courseType','') in ('ONE2ONE','ONE2ONE_CLASS') then '一对一'
+              when position('一对一' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
+              when position('1v1' in lower(coalesce(h.raw_json->>'courseName',''))) > 0 then '一对一'
+              when position('1对1' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
+              else '一对多'
+            end as course_type
+          from amilyhub.hour_cost_flows h
+          where coalesce(h.raw_json->>'courseName','') <> ''
+        ), grouped as (
+          select course_name, max(course_type) as course_type, '按课时'::text as charge_type, '启用'::text as status
+          from course_base
+          group by course_name
+        )
+        select count(*) as c from grouped g {cond}
+        """,
+        tuple(params),
+    )
+
+    rows = fetch_rows(
+        f"""
+        with course_base as (
+          select
+            coalesce(nullif(h.raw_json->>'courseName',''), '') as course_name,
+            case
+              when coalesce(h.raw_json->>'courseType','') in ('ONE2ONE','ONE2ONE_CLASS') then '一对一'
+              when position('一对一' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
+              when position('1v1' in lower(coalesce(h.raw_json->>'courseName',''))) > 0 then '一对一'
+              when position('1对1' in coalesce(h.raw_json->>'courseName','')) > 0 then '一对一'
+              else '一对多'
+            end as course_type
+          from amilyhub.hour_cost_flows h
+          where coalesce(h.raw_json->>'courseName','') <> ''
+        ), grouped as (
+          select
+            course_name,
+            max(course_type) as course_type,
+            '按课时'::text as charge_type,
+            '启用'::text as status
+          from course_base
+          group by course_name
+        ), active_students as (
+          select
+            coalesce(h.raw_json->>'courseName','') as course_name,
+            count(distinct coalesce(h.raw_json->>'studentId','')) as active_students
+          from amilyhub.hour_cost_flows h
+          where coalesce(h.raw_json->>'courseName','') <> ''
+            and coalesce(h.raw_json->>'studentId','') <> ''
+            and coalesce(h.raw_json->>'state','') = 'VALID'
+          group by coalesce(h.raw_json->>'courseName','')
+        ), pricing as (
+          select
+            x.course_name,
+            string_agg(distinct x.item_info, E'\n' order by x.item_info) as pricing_rules
+          from (
+            select
+              coalesce(o.raw_json->>'courseName','') as course_name,
+              coalesce(pi->>'itemsInfo','') as item_info
+            from amilyhub.orders o
+            left join lateral jsonb_array_elements(coalesce(o.raw_json->'purchaseItems','[]'::jsonb)) pi on true
+            where coalesce(pi->>'itemsInfo','') <> ''
+          ) x
+          where x.course_name <> ''
+          group by x.course_name
+        )
+        select
+          row_number() over(order by g.course_name) as id,
+          g.course_name,
+          g.course_type,
+          g.charge_type,
+          coalesce(p.pricing_rules, '-') as pricing_rules,
+          coalesce(a.active_students, 0) as active_students,
+          g.status
+        from grouped g
+        left join active_students a on a.course_name = g.course_name
+        left join pricing p on p.course_name = g.course_name
+        {cond}
+        order by g.course_name
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
+    )
+
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total_row or {}).get('c', 0) or 0)}}
+
+
 @app.get("/api/v1/classes", response_model=ListResponse)
 def list_classes(
     q: str | None = Query(default=None),
