@@ -155,19 +155,22 @@ export default function StudentsPage() {
         key: "name",
         title: "学员姓名",
         render: (row) => (
-          <Link className="text-primary underline-offset-2 hover:underline" href={`/students/${encodeURIComponent(row.id)}`} onClick={(e) => e.stopPropagation()}>
+          <Link className="font-semibold text-foreground hover:underline underline-offset-2" href={`/students/${encodeURIComponent(row.id)}`} onClick={(e) => e.stopPropagation()}>
             {row.name}
           </Link>
         ),
       },
       { key: "phone", title: "手机号" },
       { key: "className", title: "所在班级" },
-      { key: "age", title: "年龄", render: (row) => row.age ?? "-" },
-      { key: "birthday", title: "出生日期", render: (row) => formatDateCn(row.birthday) },
       {
         key: "status",
         title: "状态",
-        render: (row) => <Badge variant={row.status === "在读" ? "default" : row.status === "停课" ? "secondary" : "outline"}>{row.status}</Badge>,
+        render: (row) => <Badge variant="outline">{row.status}</Badge>,
+      },
+      {
+        key: "remainHours",
+        title: "剩余课时",
+        render: (row) => (row.remainHours != null ? `${row.remainHours} 课时` : "-"),
       },
       { key: "consultant", title: "跟进人" },
       { key: "creator", title: "创建人" },
