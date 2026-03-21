@@ -119,6 +119,13 @@ class OrderRenewalRequest(BaseModel):
     arrears_cents: int = 0
 
 
+class OrderActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str | None = None
+    reason: str | None = None
+
+
 class ScheduleEventCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -137,6 +144,8 @@ class RollcallConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = "正常"
+    operator: str | None = None
+    reason: str | None = None
 
 
 class CourseUpsertRequest(BaseModel):
@@ -287,25 +296,67 @@ def ensure_order_events_table():
                 """
                 create table if not exists amilyhub.order_events (
                   id bigserial primary key,
+                  order_id text,
                   source_order_id text not null,
                   event_type text not null,
                   payload jsonb not null default '{}'::jsonb,
+                  operator text,
+                  reason text,
                   created_at timestamptz default now()
                 )
                 """
             )
+            cur.execute("alter table amilyhub.order_events add column if not exists order_id text")
+            cur.execute("alter table amilyhub.order_events add column if not exists operator text")
+            cur.execute("alter table amilyhub.order_events add column if not exists reason text")
+            cur.execute(
+                """
+                update amilyhub.order_events
+                set order_id = source_order_id
+                where order_id is null
+                """
+            )
             cur.execute("create index if not exists idx_order_events_order on amilyhub.order_events(source_order_id)")
+            cur.execute("create index if not exists idx_order_events_order_id on amilyhub.order_events(order_id)")
             conn.commit()
 
 
-def create_order_event(cur, source_order_id: str, event_type: str, payload: dict[str, Any]):
+def create_order_event(
+    cur,
+    source_order_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    operator: str | None = None,
+    reason: str | None = None,
+):
     cur.execute(
         """
-        insert into amilyhub.order_events(source_order_id, event_type, payload)
-        values (%s, %s, %s::jsonb)
+        insert into amilyhub.order_events(order_id, source_order_id, event_type, payload, operator, reason)
+        values (%s, %s, %s, %s::jsonb, %s, %s)
         """,
-        (source_order_id, event_type, json.dumps(payload, ensure_ascii=False, default=str)),
+        (
+            source_order_id,
+            source_order_id,
+            event_type,
+            json.dumps(payload, ensure_ascii=False, default=str),
+            operator,
+            reason,
+        ),
     )
+
+
+def has_order_event(cur, source_order_id: str, event_type: str) -> bool:
+    cur.execute(
+        """
+        select 1
+        from amilyhub.order_events
+        where source_order_id=%s and event_type=%s
+        limit 1
+        """,
+        (source_order_id, event_type),
+    )
+    return cur.fetchone() is not None
 
 
 def ensure_schedule_events_table():
@@ -1081,6 +1132,84 @@ def update_order(source_order_id: str, payload: OrderUpdateRequest):
     return {"ok": True, "data": dict(zip(cols, row))}
 
 
+@app.post("/api/v1/orders/{source_order_id}/void", response_model=ObjectResponse)
+def void_order(source_order_id: str, payload: OrderActionRequest | None = None):
+    ensure_order_events_table()
+    operator = (payload.operator if payload else None) or "system"
+    reason = (payload.reason if payload else None) or "manual_void"
+    event_payload = {
+        "source_order_id": source_order_id,
+        "operator": operator,
+        "reason": reason,
+        "action": "void",
+    }
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.orders
+                set order_state=%s,
+                    raw_json = coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_order_id=%s
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    "已作废",
+                    json.dumps({"voided": True, "void_reason": reason, "void_operator": operator}, ensure_ascii=False),
+                    source_order_id,
+                ),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "ORDER_NOT_FOUND", "order not found")
+            cols = [d.name for d in cur.description]
+            if not has_order_event(cur, source_order_id, "void"):
+                create_order_event(cur, source_order_id, "void", event_payload, operator=operator, reason=reason)
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.post("/api/v1/orders/{source_order_id}/refund", response_model=ObjectResponse)
+def refund_order(source_order_id: str, payload: OrderActionRequest | None = None):
+    ensure_order_events_table()
+    operator = (payload.operator if payload else None) or "system"
+    reason = (payload.reason if payload else None) or "manual_refund"
+    event_payload = {
+        "source_order_id": source_order_id,
+        "operator": operator,
+        "reason": reason,
+        "action": "refund",
+    }
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update amilyhub.orders
+                set order_type=%s,
+                    order_state=%s,
+                    raw_json = coalesce(raw_json, '{}'::jsonb) || %s::jsonb
+                where source_order_id=%s
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    "退费",
+                    "已作废",
+                    json.dumps({"refunded": True, "refund_reason": reason, "refund_operator": operator}, ensure_ascii=False),
+                    source_order_id,
+                ),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ApiError(404, "ORDER_NOT_FOUND", "order not found")
+            cols = [d.name for d in cur.description]
+            if not has_order_event(cur, source_order_id, "refund"):
+                create_order_event(cur, source_order_id, "refund", event_payload, operator=operator, reason=reason)
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
 @app.get("/api/v1/hour-cost-flows", response_model=ListResponse)
 def list_hour_cost_flows(
     student_id: str | None = Query(default=None),
@@ -1711,8 +1840,43 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
     if not row:
         raise ApiError(404, "ROLLCALL_NOT_FOUND", "rollcall not found")
 
-    status = payload.status or row.get("status") or "正常"
-    if status not in ["正常", "已到", "出勤", "正常到课"]:
+    status = (payload.status or row.get("status") or "正常").strip()
+    operator = payload.operator or "system"
+    reason = payload.reason or ""
+    normal_statuses = {"正常", "已到", "出勤", "正常到课"}
+    leave_statuses = {"请假"}
+    absent_statuses = {"旷课"}
+    revoke_statuses = {"撤销确认", "撤销", "取消确认"}
+
+    if status in revoke_statuses:
+        flow_source_id = f"ROLLCALL_{source_id}"
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from amilyhub.hour_cost_flows where source_id=%s", (flow_source_id,))
+                revoked = cur.rowcount > 0
+                cur.execute("update amilyhub.rollcalls set status=%s where source_row_hash=%s", (status, source_id))
+                conn.commit()
+        return {
+            "ok": True,
+            "data": {
+                "rollcall": source_id,
+                "status": status,
+                "revoked": revoked,
+                "rollback": "deleted_hour_cost_flow",
+                "idempotent_key": flow_source_id,
+            },
+        }
+
+    if status in normal_statuses:
+        cost_hours = 1
+        cost_type = "课消"
+    elif status in leave_statuses:
+        cost_hours = 0
+        cost_type = "请假"
+    elif status in absent_statuses:
+        cost_hours = 1
+        cost_type = "旷课课消"
+    else:
         return {"ok": True, "data": {"rollcall": source_id, "status": status, "skipped": True}}
 
     raw = row.get("raw_json") or {}
@@ -1730,9 +1894,12 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
         "teacherNames": row.get("teacher_name"),
         "studentName": row.get("student_name"),
         "studentId": student_id,
-        "checkedPurchaseLessons": 1,
+        "checkedPurchaseLessons": cost_hours,
         "checkedGiftLessons": 0,
         "status": status,
+        "operator": operator,
+        "reason": reason,
+        "reversible": True,
     }
 
     with get_conn() as conn:
@@ -1747,6 +1914,7 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
                       cost_type = excluded.cost_type,
                       source_type = excluded.source_type,
                       cost_hours = excluded.cost_hours,
+                      cost_amount_cents = excluded.cost_amount_cents,
                       raw_json = excluded.raw_json,
                       checked_at = now()
                 returning source_id, source_student_id, cost_hours, checked_at
@@ -1754,18 +1922,27 @@ def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
                 (
                     flow_source_id,
                     student_id,
-                    "课消",
+                    cost_type,
                     "ROLLCALL",
-                    1,
+                    cost_hours,
                     0,
                     json.dumps(flow_raw, ensure_ascii=False, default=str),
                 ),
             )
             flow = cur.fetchone()
             flow_cols = [d.name for d in cur.description]
+            cur.execute("update amilyhub.rollcalls set status=%s where source_row_hash=%s", (status, source_id))
             conn.commit()
 
-    return {"ok": True, "data": {"rollcall": source_id, "hour_cost_flow": dict(zip(flow_cols, flow)), "idempotent_key": flow_source_id}}
+    return {
+        "ok": True,
+        "data": {
+            "rollcall": source_id,
+            "status": status,
+            "hour_cost_flow": dict(zip(flow_cols, flow)),
+            "idempotent_key": flow_source_id,
+        },
+    }
 
 
 @app.get("/api/v1/schedule-events", response_model=ListResponse)

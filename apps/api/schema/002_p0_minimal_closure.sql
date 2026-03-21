@@ -3,12 +3,16 @@ set search_path to amilyhub, public;
 
 create table if not exists order_events (
   id bigserial primary key,
+  order_id text,
   source_order_id text not null,
   event_type text not null,
   payload jsonb not null default '{}'::jsonb,
+  operator text,
+  reason text,
   created_at timestamptz default now()
 );
 create index if not exists idx_order_events_order on order_events(source_order_id);
+create index if not exists idx_order_events_order_id on order_events(order_id);
 
 create table if not exists schedule_events (
   id bigserial primary key,
@@ -27,4 +31,4 @@ create table if not exists schedule_events (
 );
 create index if not exists idx_schedule_events_teacher_time on schedule_events(teacher_name, start_time, end_time);
 
--- TODO(P0-next): enrich event_type coverage to void/refund and add richer audit fields.
+-- TODO(P0-next): keep extending event coverage when additional order transitions are introduced.
