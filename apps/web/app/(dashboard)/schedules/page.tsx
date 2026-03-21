@@ -53,7 +53,7 @@ export default function SchedulesPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="课表管理" description="与上课记录统一数据源（rollcalls）。" />
+      <PageHeader title="课表管理" description="计划排课数据源（schedule_events）。" />
       <div className="flex gap-2">
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="max-w-44" />
         <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索班级/老师" className="max-w-sm" />

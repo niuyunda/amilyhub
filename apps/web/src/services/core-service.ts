@@ -343,7 +343,7 @@ export async function getOrders(query: OrderQuery): Promise<ServiceResult<PageRe
       items: filtered.map((x) => ({
         id: String(x.id),
         orderNo: String(x.source_order_id ?? "-"),
-        studentName: String(x.source_student_id ?? "-"),
+        studentName: String(x.student_name ?? x.source_student_id ?? "-"),
         orderType: mapOrderType(x.order_type),
         status: mapOrderStatus(x.order_state),
         receivableYuan: toYuan(x.receivable_cents),

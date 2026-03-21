@@ -110,6 +110,35 @@ class OrderUpdateRequest(BaseModel):
     arrears_cents: int | None = None
 
 
+class OrderRenewalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_student_id: str
+    receivable_cents: int = 0
+    received_cents: int = 0
+    arrears_cents: int = 0
+
+
+class ScheduleEventCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    class_name: str
+    teacher_name: str
+    start_time: str
+    end_time: str
+    room_name: str | None = None
+    status: str = "planned"
+    source_course_id: str | None = None
+    source_class_id: str | None = None
+    note: str | None = None
+
+
+class RollcallConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = "正常"
+
+
 class CourseUpsertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -248,6 +277,60 @@ def ensure_courses_table():
                   and source_course_id not like 'LOCAL_%'
                 """
             )
+            conn.commit()
+
+
+def ensure_order_events_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                create table if not exists amilyhub.order_events (
+                  id bigserial primary key,
+                  source_order_id text not null,
+                  event_type text not null,
+                  payload jsonb not null default '{}'::jsonb,
+                  created_at timestamptz default now()
+                )
+                """
+            )
+            cur.execute("create index if not exists idx_order_events_order on amilyhub.order_events(source_order_id)")
+            conn.commit()
+
+
+def create_order_event(cur, source_order_id: str, event_type: str, payload: dict[str, Any]):
+    cur.execute(
+        """
+        insert into amilyhub.order_events(source_order_id, event_type, payload)
+        values (%s, %s, %s::jsonb)
+        """,
+        (source_order_id, event_type, json.dumps(payload, ensure_ascii=False, default=str)),
+    )
+
+
+def ensure_schedule_events_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                create table if not exists amilyhub.schedule_events (
+                  id bigserial primary key,
+                  class_name text not null,
+                  teacher_name text not null,
+                  start_time timestamptz not null,
+                  end_time timestamptz not null,
+                  room_name text,
+                  status text not null default 'planned',
+                  source_course_id text,
+                  source_class_id text,
+                  note text,
+                  raw_json jsonb not null default '{}'::jsonb,
+                  created_at timestamptz default now(),
+                  updated_at timestamptz default now()
+                )
+                """
+            )
+            cur.execute("create index if not exists idx_schedule_events_teacher_time on amilyhub.schedule_events(teacher_name, start_time, end_time)")
             conn.commit()
 
 
@@ -832,21 +915,48 @@ def list_orders(
     page: int = Query(default=1),
     page_size: int = Query(default=20),
 ):
+    page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
     if student_id:
-        clauses.append("source_student_id = %s")
+        clauses.append("o.source_student_id = %s")
         params.append(student_id)
     if state:
-        clauses.append("order_state = %s")
+        clauses.append("o.order_state = %s")
         params.append(state)
-    return list_query(
-        "orders",
-        "id, source_order_id, source_student_id, order_type, order_state, receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at",
-        clauses,
-        params,
-        page,
-        page_size,
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total = fetch_one(
+        f"""
+        select count(*) as c
+        from amilyhub.orders o
+        {cond}
+        """,
+        tuple(params),
+    )["c"]
+
+    rows = fetch_rows(
+        f"""
+        select
+          o.id,
+          o.source_order_id,
+          o.source_student_id,
+          coalesce(s.name, '-') as student_name,
+          o.order_type,
+          o.order_state,
+          o.receivable_cents,
+          o.received_cents,
+          o.arrears_cents,
+          o.source_created_at,
+          o.source_paid_at
+        from amilyhub.orders o
+        left join amilyhub.students s on s.source_student_id = o.source_student_id
+        {cond}
+        order by o.id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
     )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
 
 
 @app.get("/api/v1/orders/{source_order_id}", response_model=ObjectResponse)
@@ -866,6 +976,7 @@ def get_order(source_order_id: str):
 
 @app.post("/api/v1/orders", response_model=ObjectResponse, status_code=201)
 def create_order(payload: OrderUpsertRequest):
+    ensure_order_events_table()
     if payload.source_student_id:
         assert_student_exists(payload.source_student_id)
     with get_conn() as conn:
@@ -894,6 +1005,44 @@ def create_order(payload: OrderUpsertRequest):
             )
             row = cur.fetchone()
             cols = [d.name for d in cur.description]
+            create_order_event(cur, payload.source_order_id, "create", payload.model_dump(mode="json"))
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
+@app.post("/api/v1/orders/renewal", response_model=ObjectResponse, status_code=201)
+def create_order_renewal(payload: OrderRenewalRequest):
+    ensure_order_events_table()
+    assert_student_exists(payload.source_student_id)
+    source_order_id = f"RNEW{int(time.time() * 1000)}{random.randint(100,999)}"
+    order_state = "已支付" if payload.arrears_cents == 0 else "待支付"
+    raw = payload.model_dump(mode="json")
+    raw["source_order_id"] = source_order_id
+    raw["order_type"] = "续费"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.orders
+                (source_order_id, source_student_id, order_type, order_state, receivable_cents, received_cents, arrears_cents, raw_json)
+                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                returning id, source_order_id, source_student_id, order_type, order_state,
+                          receivable_cents, received_cents, arrears_cents, source_created_at, source_paid_at
+                """,
+                (
+                    source_order_id,
+                    payload.source_student_id,
+                    "续费",
+                    order_state,
+                    payload.receivable_cents,
+                    payload.received_cents,
+                    payload.arrears_cents,
+                    json.dumps(raw, ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            create_order_event(cur, source_order_id, "renewal", raw)
             conn.commit()
     return {"ok": True, "data": dict(zip(cols, row))}
 
@@ -1549,6 +1698,163 @@ def get_rollcall_detail(source_id: str):
     return {"ok": True, "data": row}
 
 
+@app.post("/api/v1/rollcalls/{source_id}/confirm", response_model=ObjectResponse)
+def confirm_rollcall(source_id: str, payload: RollcallConfirmRequest):
+    row = fetch_one(
+        """
+        select source_row_hash, student_name, class_name, course_name, teacher_name, rollcall_time, class_time_range, status, raw_json
+        from amilyhub.rollcalls
+        where source_row_hash=%s
+        """,
+        (source_id,),
+    )
+    if not row:
+        raise ApiError(404, "ROLLCALL_NOT_FOUND", "rollcall not found")
+
+    status = payload.status or row.get("status") or "正常"
+    if status not in ["正常", "已到", "出勤", "正常到课"]:
+        return {"ok": True, "data": {"rollcall": source_id, "status": status, "skipped": True}}
+
+    raw = row.get("raw_json") or {}
+    student_id = raw.get("studentId") if isinstance(raw, dict) else None
+    if not student_id:
+        hit = fetch_one("select source_student_id from amilyhub.students where name=%s order by id desc limit 1", (row.get("student_name"),))
+        student_id = (hit or {}).get("source_student_id")
+
+    flow_source_id = f"ROLLCALL_{source_id}"
+    flow_raw = {
+        "from": "rollcall_confirm",
+        "rollcallId": source_id,
+        "className": row.get("class_name"),
+        "courseName": row.get("course_name"),
+        "teacherNames": row.get("teacher_name"),
+        "studentName": row.get("student_name"),
+        "studentId": student_id,
+        "checkedPurchaseLessons": 1,
+        "checkedGiftLessons": 0,
+        "status": status,
+    }
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into amilyhub.hour_cost_flows
+                (source_id, source_student_id, source_teacher_id, source_class_id, source_course_id, cost_type, source_type, cost_hours, cost_amount_cents, checked_at, raw_json)
+                values (%s, %s, null, null, null, %s, %s, %s, %s, now(), %s::jsonb)
+                on conflict (source_id) do update
+                  set source_student_id = excluded.source_student_id,
+                      cost_type = excluded.cost_type,
+                      source_type = excluded.source_type,
+                      cost_hours = excluded.cost_hours,
+                      raw_json = excluded.raw_json,
+                      checked_at = now()
+                returning source_id, source_student_id, cost_hours, checked_at
+                """,
+                (
+                    flow_source_id,
+                    student_id,
+                    "课消",
+                    "ROLLCALL",
+                    1,
+                    0,
+                    json.dumps(flow_raw, ensure_ascii=False, default=str),
+                ),
+            )
+            flow = cur.fetchone()
+            flow_cols = [d.name for d in cur.description]
+            conn.commit()
+
+    return {"ok": True, "data": {"rollcall": source_id, "hour_cost_flow": dict(zip(flow_cols, flow)), "idempotent_key": flow_source_id}}
+
+
+@app.get("/api/v1/schedule-events", response_model=ListResponse)
+def list_schedule_events(
+    q: str | None = Query(default=None),
+    date: str | None = Query(default=None),
+    page: int = Query(default=1),
+    page_size: int = Query(default=200),
+):
+    ensure_schedule_events_table()
+    page, page_size, offset = pager(page, page_size)
+    clauses, params = [], []
+    if q:
+        clauses.append("(class_name ilike %s or teacher_name ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if date:
+        clauses.append("to_char(start_time at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
+        params.append(date)
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
+
+    total = fetch_one(f"select count(*) as c from amilyhub.schedule_events {cond}", tuple(params))["c"]
+    rows = fetch_rows(
+        f"""
+        select
+          id,
+          class_name,
+          teacher_name,
+          room_name,
+          status,
+          start_time,
+          end_time,
+          source_course_id,
+          source_class_id,
+          note
+        from amilyhub.schedule_events
+        {cond}
+        order by start_time desc, id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
+    )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
+
+
+@app.post("/api/v1/schedule-events", response_model=ObjectResponse, status_code=201)
+def create_schedule_event(payload: ScheduleEventCreateRequest):
+    ensure_schedule_events_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select 1
+                from amilyhub.schedule_events
+                where teacher_name = %s
+                  and tstzrange(start_time, end_time, '[)') && tstzrange(%s::timestamptz, %s::timestamptz, '[)')
+                limit 1
+                """,
+                (payload.teacher_name, payload.start_time, payload.end_time),
+            )
+            if cur.fetchone():
+                raise ApiError(409, "SCHEDULE_CONFLICT", "teacher already has a schedule at this time")
+
+            raw = payload.model_dump(mode="json")
+            cur.execute(
+                """
+                insert into amilyhub.schedule_events
+                (class_name, teacher_name, start_time, end_time, room_name, status, source_course_id, source_class_id, note, raw_json)
+                values (%s,%s,%s::timestamptz,%s::timestamptz,%s,%s,%s,%s,%s,%s::jsonb)
+                returning id, class_name, teacher_name, start_time, end_time, room_name, status, source_course_id, source_class_id, note
+                """,
+                (
+                    payload.class_name,
+                    payload.teacher_name,
+                    payload.start_time,
+                    payload.end_time,
+                    payload.room_name,
+                    payload.status,
+                    payload.source_course_id,
+                    payload.source_class_id,
+                    payload.note,
+                    json.dumps(raw, ensure_ascii=False, default=str),
+                ),
+            )
+            row = cur.fetchone()
+            cols = [d.name for d in cur.description]
+            conn.commit()
+    return {"ok": True, "data": dict(zip(cols, row))}
+
+
 @app.get("/api/v1/schedules", response_model=ListResponse)
 def list_schedules(
     view: str | None = Query(default="time"),
@@ -1557,33 +1863,40 @@ def list_schedules(
     page: int = Query(default=1),
     page_size: int = Query(default=200),
 ):
+    ensure_schedule_events_table()
+    page, page_size, offset = pager(page, page_size)
     clauses, params = [], []
     if q:
-        clauses.append("(coalesce(class_name,'') ilike %s or coalesce(teacher_name,'') ilike %s or coalesce(raw_json->>'studentName','') ilike %s)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append("(class_name ilike %s or teacher_name ilike %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
     if date:
-        clauses.append("left(rollcall_time, 10) = %s")
+        clauses.append("to_char(start_time at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
         params.append(date)
+    cond = f" where {' and '.join(clauses)} " if clauses else ""
 
-    return list_query(
-        "rollcalls",
-        """
-        source_row_hash as id,
-        'time'::text as view_key,
-        rollcall_time as date_time,
-        class_time_range as time_range,
-        class_name,
-        teacher_name,
-        coalesce(raw_json->>'classRoomName','-') as room_name,
-        coalesce(raw_json->>'studentName','-') as student_name,
-        status
+    total = fetch_one(f"select count(*) as c from amilyhub.schedule_events {cond}", tuple(params))["c"]
+    rows = fetch_rows(
+        f"""
+        select
+          id::text as id,
+          'time'::text as view_key,
+          start_time as date_time,
+          to_char(start_time at time zone 'Pacific/Auckland', 'YYYY-MM-DD HH24:MI')
+            || ' - ' ||
+          to_char(end_time at time zone 'Pacific/Auckland', 'HH24:MI') as time_range,
+          class_name,
+          teacher_name,
+          coalesce(room_name, '-') as room_name,
+          '-'::text as student_name,
+          status
+        from amilyhub.schedule_events
+        {cond}
+        order by start_time desc, id desc
+        limit %s offset %s
         """,
-        clauses,
-        params,
-        page,
-        page_size,
-        order_by="rollcall_time desc",
+        tuple(params + [page_size, offset]),
     )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": total}}
 
 
 @app.get("/api/v1/data/integrity", response_model=IntegrityCheckResponse)
