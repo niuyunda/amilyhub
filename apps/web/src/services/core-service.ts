@@ -28,6 +28,18 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:18765/api
 type ApiList<T> = { ok: boolean; data: T[]; page: { page: number; page_size: number; total: number } };
 type ApiObj<T> = { ok: boolean; data: T };
 
+class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function toYuan(cents?: number | null): number {
   return Number(((cents ?? 0) / 100).toFixed(2));
 }
@@ -63,7 +75,18 @@ async function sendJson<T>(method: "POST" | "PUT" | "DELETE", path: string, body
   if (res.status === 403) throw new Error("FORBIDDEN");
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `HTTP_${res.status}`);
+    let message = text || `HTTP_${res.status}`;
+    let code: string | undefined;
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string } };
+        code = parsed.error?.code;
+        message = parsed.error?.message || code || message;
+      } catch {
+        message = text;
+      }
+    }
+    throw new ApiRequestError(message, res.status, code);
   }
   return res.json() as Promise<T>;
 }
@@ -498,6 +521,31 @@ export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<
     });
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function createScheduleEvent(input: {
+  className: string;
+  teacherName: string;
+  startTime: string;
+  endTime: string;
+  roomName?: string;
+}): Promise<ServiceResult<any> | { kind: "conflict"; message: string }> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", "/schedule-events", {
+      class_name: input.className,
+      teacher_name: input.teacherName,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      room_name: input.roomName,
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    if (e instanceof ApiRequestError && e.code === "SCHEDULE_CONFLICT") {
+      return { kind: "conflict", message: e.message || "排课冲突" };
+    }
     throw e;
   }
 }
