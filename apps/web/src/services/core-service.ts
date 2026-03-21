@@ -531,9 +531,9 @@ export async function createScheduleEvent(input: {
   startTime: string;
   endTime: string;
   roomName?: string;
-}): Promise<ServiceResult<any> | { kind: "conflict"; message: string }> {
+}): Promise<ServiceResult<Record<string, unknown>> | { kind: "conflict"; message: string }> {
   try {
-    const r = await sendJson<ApiObj<any>>("POST", "/schedule-events", {
+    const r = await sendJson<ApiObj<Record<string, unknown>>>("POST", "/schedule-events", {
       class_name: input.className,
       teacher_name: input.teacherName,
       start_time: input.startTime,
