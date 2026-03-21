@@ -15,6 +15,34 @@ import type { CourseItem } from "@/src/types/domain";
 
 const PAGE_SIZE = 10;
 
+type PriceRow = { name: string; quantity: number; totalPrice: number };
+
+const parsePricingRules = (text: string): PriceRow[] => {
+  const lines = String(text || "").split("\n").map((x) => x.trim()).filter(Boolean);
+  const out: PriceRow[] = [];
+  for (const line of lines) {
+    const m1 = line.match(/^(.*)\((\d+(?:\.\d+)?)元\/(?:课时)\)$/);
+    if (m1) {
+      out.push({ name: m1[1], quantity: 1, totalPrice: Number(m1[2]) });
+      continue;
+    }
+    const m2 = line.match(/^(.*)\((\d+(?:\.\d+)?)元(\d+(?:\.\d+)?)课时\)$/);
+    if (m2) {
+      out.push({ name: m2[1], quantity: Number(m2[3]), totalPrice: Number(m2[2]) });
+    }
+  }
+  return out;
+};
+
+const toPricingRulesText = (rows: PriceRow[]): string =>
+  rows
+    .filter((x) => x.name.trim())
+    .map((x) => {
+      if (x.quantity === 1) return `${x.name}(${x.totalPrice}元/课时)`;
+      return `${x.name}(${x.totalPrice}元${x.quantity}课时)`;
+    })
+    .join("\n") || "-";
+
 export default function CoursesPage() {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "forbidden">("loading");
   const [error, setError] = useState("");
@@ -32,7 +60,7 @@ export default function CoursesPage() {
   const [formName, setFormName] = useState("");
   const [formCourseType, setFormCourseType] = useState<"一对一" | "一对多">("一对多");
   const [formStatus, setFormStatus] = useState<"启用" | "停用">("启用");
-  const [formPricingRules, setFormPricingRules] = useState("单价(130元/课时)");
+  const [pricingRows, setPricingRows] = useState<PriceRow[]>([{ name: "单价", quantity: 1, totalPrice: 130 }]);
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
@@ -66,7 +94,7 @@ export default function CoursesPage() {
     setFormName("");
     setFormCourseType("一对多");
     setFormStatus("启用");
-    setFormPricingRules("单价(130元/课时)");
+    setPricingRows([{ name: "单价", quantity: 1, totalPrice: 130 }]);
     setFormOpen(true);
   };
 
@@ -76,19 +104,24 @@ export default function CoursesPage() {
     setFormName(row.courseName);
     setFormCourseType(row.courseType);
     setFormStatus(row.status);
-    setFormPricingRules(row.pricingRules || "-");
+    const parsed = row.pricingItems?.length ? row.pricingItems : parsePricingRules(row.pricingRules || "");
+    setPricingRows(parsed.length ? parsed : [{ name: "单价", quantity: 1, totalPrice: 130 }]);
     setFormOpen(true);
   };
 
   const submitForm = async () => {
     if (!formName.trim()) return;
+    const items = pricingRows.filter((x) => x.name.trim()).slice(0, 10);
+    const pricingRules = toPricingRulesText(items);
+
     if (formMode === "create") {
       await createCourse({
         name: formName.trim(),
         courseType: formCourseType,
         feeType: "按课时",
         status: formStatus,
-        pricingRules: formPricingRules || "-",
+        pricingRules,
+        pricingItems: items,
         studentNum: 0,
       });
       setFormOpen(false);
@@ -102,7 +135,8 @@ export default function CoursesPage() {
       courseType: formCourseType,
       feeType: "按课时",
       status: formStatus,
-      pricingRules: formPricingRules || "-",
+      pricingRules,
+      pricingItems: items,
       studentNum: 0,
     });
     setFormOpen(false);
@@ -180,42 +214,72 @@ export default function CoursesPage() {
       ) : null}
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{formMode === "create" ? "新建课程" : "编辑课程"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">课程名称</p>
-              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="请输入课程名称" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">课程类型</p>
-              <Select value={formCourseType} onValueChange={(v) => setFormCourseType(v as "一对一" | "一对多")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="一对多">一对多</SelectItem>
-                  <SelectItem value="一对一">一对一</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">课程名称</p>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="请输入课程名称" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">课程类型</p>
+                <Select value={formCourseType} onValueChange={(v) => setFormCourseType(v as "一对一" | "一对多")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="一对多">一对多</SelectItem>
+                    <SelectItem value="一对一">一对一</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">状态</p>
               <Select value={formStatus} onValueChange={(v) => setFormStatus(v as "启用" | "停用")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="启用">启用</SelectItem>
                   <SelectItem value="停用">停用</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">定价标准（每行一条）</p>
-              <textarea
-                className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={formPricingRules}
-                onChange={(e) => setFormPricingRules(e.target.value)}
-              />
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">定价标准</p>
+              <div className="rounded border">
+                <div className="grid grid-cols-12 gap-2 border-b bg-muted/30 px-2 py-2 text-xs text-muted-foreground">
+                  <div className="col-span-4">名称</div>
+                  <div className="col-span-2">数量(课时)</div>
+                  <div className="col-span-2">总价(元)</div>
+                  <div className="col-span-2">单价(元/课时)</div>
+                  <div className="col-span-2">操作</div>
+                </div>
+                <div className="space-y-2 p-2">
+                  {pricingRows.map((r, idx) => {
+                    const unit = r.quantity > 0 ? r.totalPrice / r.quantity : 0;
+                    return (
+                      <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                        <Input className="col-span-4" value={r.name} onChange={(e) => setPricingRows((prev) => prev.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))} />
+                        <Input className="col-span-2" type="number" value={r.quantity} onChange={(e) => setPricingRows((prev) => prev.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value || 0) } : x))} />
+                        <Input className="col-span-2" type="number" value={r.totalPrice} onChange={(e) => setPricingRows((prev) => prev.map((x, i) => i === idx ? { ...x, totalPrice: Number(e.target.value || 0) } : x))} />
+                        <div className="col-span-2 text-sm">{Number.isFinite(unit) ? unit.toFixed(2) : "0.00"}</div>
+                        <div className="col-span-2">
+                          <Button variant="ghost" size="sm" onClick={() => setPricingRows((prev) => prev.filter((_, i) => i !== idx))}>删除</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPricingRows((prev) => (prev.length >= 10 ? prev : [...prev, { name: "", quantity: 1, totalPrice: 0 }]))}
+                  >
+                    添加({pricingRows.length}/10)
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

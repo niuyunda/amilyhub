@@ -69,6 +69,7 @@ export interface CourseItem {
   courseType: "一对一" | "一对多";
   chargeType: string;
   pricingRules: string;
+  pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   activeStudents: number;
   status: "启用" | "停用";
 }

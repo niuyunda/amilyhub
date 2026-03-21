@@ -109,6 +109,7 @@ class CourseUpsertRequest(BaseModel):
     fee_type: str = "按课时"
     status: str = "启用"
     pricing_rules: str = "-"
+    pricing_items: list[dict[str, Any]] | None = None
     student_num: int = 0
 
 
@@ -940,6 +941,7 @@ def list_courses(
           coalesce(course_type,'一对多') as course_type,
           coalesce(fee_type,'按课时') as charge_type,
           coalesce(pricing_rules,'-') as pricing_rules,
+          coalesce(raw_json->'pricing_items','[]'::jsonb) as pricing_items,
           coalesce(student_num,0) as active_students,
           coalesce(status,'启用') as status
         from amilyhub.courses

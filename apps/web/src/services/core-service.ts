@@ -243,6 +243,13 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
         courseType: x.course_type === "一对一" ? "一对一" : "一对多",
         chargeType: x.charge_type ?? "按课时",
         pricingRules: x.pricing_rules ?? "-",
+        pricingItems: Array.isArray(x.pricing_items)
+          ? x.pricing_items.map((p: any) => ({
+              name: String(p.name ?? ""),
+              quantity: Number(p.quantity ?? 0),
+              totalPrice: Number(p.totalPrice ?? 0),
+            }))
+          : undefined,
         activeStudents: Number(x.active_students ?? 0),
         status: x.status === "停用" ? "停用" : "启用",
       })),
@@ -262,6 +269,7 @@ export async function createCourse(input: {
   feeType: string;
   status: "启用" | "停用";
   pricingRules: string;
+  pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   studentNum?: number;
 }): Promise<ServiceResult<any>> {
   try {
@@ -271,6 +279,7 @@ export async function createCourse(input: {
       fee_type: input.feeType,
       status: input.status,
       pricing_rules: input.pricingRules,
+      pricing_items: input.pricingItems ?? [],
       student_num: input.studentNum ?? 0,
     });
     return ok(r.data);
@@ -286,6 +295,7 @@ export async function updateCourse(courseId: string, input: {
   feeType: string;
   status: "启用" | "停用";
   pricingRules: string;
+  pricingItems?: Array<{ name: string; quantity: number; totalPrice: number }>;
   studentNum?: number;
 }): Promise<ServiceResult<any>> {
   try {
@@ -295,6 +305,7 @@ export async function updateCourse(courseId: string, input: {
       fee_type: input.feeType,
       status: input.status,
       pricing_rules: input.pricingRules,
+      pricing_items: input.pricingItems ?? [],
       student_num: input.studentNum ?? 0,
     });
     return ok(r.data);
