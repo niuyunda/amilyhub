@@ -508,3 +508,61 @@ def test_rbac_forbidden_and_audit_log_written():
     assert audit['operator'] == 'admin_user'
     assert audit['role'] == 'admin'
     assert audit['resource_type'] == 'teacher'
+
+
+def test_rbac_role_update_success_and_reject_invalid_permission_and_forbidden():
+    role_name = f"manager_{uuid.uuid4().hex[:8]}"
+    ok_resp = client.put(
+        f"/api/v1/rbac/roles/{role_name}",
+        json={"permissions": ["orders:write", "audit:read"]},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert ok_resp.status_code == 200, ok_resp.text
+    assert ok_resp.json()["data"]["role"] == role_name
+    assert set(ok_resp.json()["data"]["permissions"]) == {"orders:write", "audit:read"}
+
+    forbidden = client.put(
+        f"/api/v1/rbac/roles/{role_name}",
+        json={"permissions": ["orders:write"]},
+        headers={"x-role": "manager", "x-operator": "rbac_manager"},
+    )
+    assert forbidden.status_code == 403, forbidden.text
+    assert forbidden.json()["error"]["code"] == "FORBIDDEN"
+
+    invalid = client.put(
+        f"/api/v1/rbac/roles/{role_name}",
+        json={"permissions": ["orders:write", "unknown:permission"]},
+        headers={"x-role": "admin", "x-operator": "rbac_admin"},
+    )
+    assert invalid.status_code == 422, invalid.text
+    assert invalid.json()["error"]["code"] == "INVALID_PERMISSION"
+
+
+def test_audit_logs_query_filter_by_operator():
+    rid = _uid("fin_audit")
+    operator = "audit_filter_user"
+    create = client.post(
+        "/api/v1/income-expense",
+        json={
+            "source_record_id": rid,
+            "item_type": "课时费",
+            "direction": "收入",
+            "amount_cents": 999,
+            "operation_date": "2026-03-22",
+            "payment_method": "微信",
+            "operator": "财务",
+            "remark": "audit filter",
+            "status": "正常",
+        },
+        headers={"x-role": "admin", "x-operator": operator},
+    )
+    assert create.status_code == 201, create.text
+
+    query_resp = client.get(
+        "/api/v1/audit-logs",
+        params={"operator": operator, "limit": 20},
+        headers={"x-role": "manager", "x-operator": "manager_query"},
+    )
+    assert query_resp.status_code == 200, query_resp.text
+    rows = query_resp.json()["data"]
+    assert any(row.get("operator") == operator for row in rows)

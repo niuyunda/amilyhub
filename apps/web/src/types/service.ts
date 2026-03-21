@@ -60,4 +60,12 @@ export interface AttendanceQuery extends ListQuery {
   classDateEnd?: string;
 }
 
+export interface AuditLogQuery {
+  action?: string;
+  operator?: string;
+  startTime?: string;
+  endTime?: string;
+  limit?: number;
+}
+
 export type ServiceResult<T> = { kind: "ok"; data: T } | { kind: "forbidden"; message: string };

@@ -4,6 +4,7 @@ import type {
   DashboardData,
   FinanceRecord,
   AttendanceRecord,
+  AuditLogItem,
   FinanceSummary,
   Order,
   ScheduleItem,
@@ -12,6 +13,7 @@ import type {
 } from "@/src/types/domain";
 import type {
   AttendanceQuery,
+  AuditLogQuery,
   ClassQuery,
   CourseQuery,
   FinanceQuery,
@@ -60,7 +62,7 @@ async function getJson<T>(path: string, query?: Record<string, string | number |
     });
   }
   const url = `${API_BASE}${path}${sp.toString() ? `?${sp.toString()}` : ""}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", headers: getOperatorHeaders() });
   if (res.status === 403) throw new Error("FORBIDDEN");
   if (!res.ok) throw new Error(`HTTP_${res.status}`);
   return res.json() as Promise<T>;
@@ -786,6 +788,32 @@ export async function voidFinanceRecord(sourceRecordId: string, input?: { operat
       reason: input?.reason,
     });
     return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function getAuditLogs(query: AuditLogQuery): Promise<ServiceResult<AuditLogItem[]>> {
+  try {
+    const r = await getJson<ApiList<any>>("/audit-logs", {
+      action: query.action,
+      operator: query.operator,
+      start_time: query.startTime,
+      end_time: query.endTime,
+      limit: query.limit,
+    });
+    return ok(
+      r.data.map((x, idx) => ({
+        id: `${x.created_at ?? "-"}-${x.action ?? "-"}-${x.resource_id ?? "-"}-${idx}`,
+        createdAt: formatDateTime(x.created_at),
+        operator: x.operator ?? "-",
+        role: x.role ?? "-",
+        action: x.action ?? "-",
+        resourceType: x.resource_type ?? "-",
+        resourceId: x.resource_id ?? "-",
+      })),
+    );
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;

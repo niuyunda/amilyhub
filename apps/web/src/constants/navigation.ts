@@ -7,7 +7,8 @@ export type NavKey =
   | "orders"
   | "finance"
   | "attendance"
-  | "courses";
+  | "courses"
+  | "auditLogs";
 
 export interface NavItem {
   key: NavKey;
@@ -26,6 +27,7 @@ export const coreNavItems: NavItem[] = [
   { key: "finance", label: "收支管理", href: "/finance", desc: "收支台账与统计汇总" },
   { key: "attendance", label: "上课记录", href: "/attendance", desc: "考勤与消课记录" },
   { key: "courses", label: "课程管理", href: "/courses", desc: "课程体系与教材管理" },
+  { key: "auditLogs", label: "审计日志", href: "/audit-logs", desc: "关键操作审计追踪" },
 ];
 
 export const pageTitleMap: Record<string, string> = Object.fromEntries(coreNavItems.map((item) => [item.href, item.label]));

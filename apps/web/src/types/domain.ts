@@ -134,6 +134,16 @@ export interface AttendanceRecord {
   studentNames: string;
 }
 
+export interface AuditLogItem {
+  id: string;
+  createdAt: string;
+  operator: string;
+  role: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+}
+
 export interface DashboardData {
   kpi: DashboardKpi;
   todos: TodoItem[];

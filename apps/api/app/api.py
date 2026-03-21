@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from datetime import date
 import time
 import random
@@ -50,16 +51,71 @@ class OperatorContext:
     role: str
 
 
-ROLE_PERMISSIONS: dict[str, set[str]] = {
-    "admin": {"teachers:write", "finance:write", "orders:write", "schedule:write"},
-    "manager": {"teachers:write", "orders:write", "schedule:write"},
+DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "admin": {"teachers:write", "finance:write", "orders:write", "schedule:write", "audit:read", "rbac:write"},
+    "manager": {"teachers:write", "orders:write", "schedule:write", "audit:read"},
     "staff": set(),
 }
+KNOWN_PERMISSIONS: set[str] = set().union(*DEFAULT_ROLE_PERMISSIONS.values())
+ROLE_PERMISSIONS: dict[str, set[str]] = {k: set(v) for k, v in DEFAULT_ROLE_PERMISSIONS.items()}
+RBAC_CACHE_TTL_SECONDS = 5
+RBAC_CACHE_UPDATED_AT = 0.0
+
+
+def ensure_rbac_role_permissions_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                create table if not exists amilyhub.rbac_role_permissions (
+                  role text not null,
+                  permission text not null,
+                  updated_at timestamptz not null default now(),
+                  primary key (role, permission)
+                )
+                """
+            )
+            cur.execute("create index if not exists idx_rbac_role_permissions_role on amilyhub.rbac_role_permissions(role)")
+            for role, permissions in DEFAULT_ROLE_PERMISSIONS.items():
+                for permission in permissions:
+                    cur.execute(
+                        """
+                        insert into amilyhub.rbac_role_permissions(role, permission)
+                        values (%s, %s)
+                        on conflict (role, permission) do nothing
+                        """,
+                        (role, permission),
+                    )
+            conn.commit()
+
+
+def refresh_role_permissions(force: bool = False) -> dict[str, set[str]]:
+    global RBAC_CACHE_UPDATED_AT
+    now = time.time()
+    if not force and ROLE_PERMISSIONS and now - RBAC_CACHE_UPDATED_AT < RBAC_CACHE_TTL_SECONDS:
+        return ROLE_PERMISSIONS
+
+    ensure_rbac_role_permissions_table()
+    rows = fetch_rows("select role, permission from amilyhub.rbac_role_permissions")
+    permissions_map: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        role = (row.get("role") or "").strip().lower()
+        permission = (row.get("permission") or "").strip()
+        if role and permission:
+            permissions_map[role].add(permission)
+    for role in DEFAULT_ROLE_PERMISSIONS:
+        permissions_map.setdefault(role, set())
+
+    ROLE_PERMISSIONS.clear()
+    ROLE_PERMISSIONS.update({role: set(perms) for role, perms in permissions_map.items()})
+    RBAC_CACHE_UPDATED_AT = now
+    return ROLE_PERMISSIONS
 
 
 def get_operator_context(request: Request) -> OperatorContext:
+    role_permissions = refresh_role_permissions()
     role = (request.headers.get("x-role") or "admin").strip().lower()
-    if role not in ROLE_PERMISSIONS:
+    if role not in role_permissions:
         role = "staff"
     operator = (request.headers.get("x-operator") or "unknown").strip() or "unknown"
     return OperatorContext(operator=operator, role=role)
@@ -67,7 +123,8 @@ def get_operator_context(request: Request) -> OperatorContext:
 
 def require_permission(request: Request, permission: str) -> OperatorContext:
     ctx = get_operator_context(request)
-    if permission not in ROLE_PERMISSIONS.get(ctx.role, set()):
+    role_permissions = refresh_role_permissions()
+    if permission not in role_permissions.get(ctx.role, set()):
         raise ApiError(403, "FORBIDDEN", "无权限执行该操作")
     return ctx
 
@@ -134,6 +191,12 @@ class ListResponse(BaseModel):
 class ObjectResponse(BaseModel):
     ok: bool = True
     data: dict[str, Any]
+
+
+class RbacRoleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    permissions: list[str] = Field(default_factory=list)
 
 
 class StudentUpsertRequest(BaseModel):
@@ -639,6 +702,96 @@ def list_query(
 def health():
     row = fetch_one("select now() as server_time")
     return {"ok": True, "server_time": row["server_time"] if row else None}
+
+
+@app.get("/api/v1/rbac/roles", response_model=ListResponse)
+def list_rbac_roles(request: Request):
+    require_permission(request, "rbac:write")
+    role_permissions = refresh_role_permissions(force=True)
+    rows = [
+        {"role": role, "permissions": sorted(list(permissions))}
+        for role, permissions in sorted(role_permissions.items(), key=lambda item: item[0])
+    ]
+    return {"ok": True, "data": rows, "page": {"page": 1, "page_size": len(rows), "total": len(rows)}}
+
+
+@app.put("/api/v1/rbac/roles/{role}", response_model=ObjectResponse)
+def update_rbac_role(role: str, body: RbacRoleUpdateRequest, request: Request):
+    ctx = require_permission(request, "rbac:write")
+    role_name = (role or "").strip().lower()
+    if not role_name:
+        raise ApiError(422, "INVALID_ROLE", "角色名不能为空")
+
+    unknown_permissions = sorted({x.strip() for x in body.permissions if x.strip() and x.strip() not in KNOWN_PERMISSIONS})
+    if unknown_permissions:
+        raise ApiError(422, "INVALID_PERMISSION", "存在未知权限点", details={"unknown_permissions": unknown_permissions})
+
+    permissions = sorted({x.strip() for x in body.permissions if x.strip()})
+    ensure_rbac_role_permissions_table()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from amilyhub.rbac_role_permissions where role=%s", (role_name,))
+            for permission in permissions:
+                cur.execute(
+                    """
+                    insert into amilyhub.rbac_role_permissions(role, permission)
+                    values (%s, %s)
+                    """,
+                    (role_name, permission),
+                )
+            conn.commit()
+
+    refresh_role_permissions(force=True)
+    write_audit_log(
+        operator=ctx.operator,
+        role=ctx.role,
+        action="rbac.roles.update",
+        resource_type="rbac_role",
+        resource_id=role_name,
+        payload={"permissions": permissions},
+    )
+    return {"ok": True, "data": {"role": role_name, "permissions": permissions}}
+
+
+@app.get("/api/v1/audit-logs", response_model=ListResponse)
+def list_audit_logs(
+    request: Request,
+    action: str | None = Query(default=None),
+    operator: str | None = Query(default=None),
+    start_time: str | None = Query(default=None),
+    end_time: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    require_permission(request, "audit:read")
+    ensure_audit_logs_table()
+
+    clauses: list[str] = []
+    params: list[Any] = []
+    if action:
+        clauses.append("action ilike %s")
+        params.append(f"{action.strip()}%")
+    if operator:
+        clauses.append("operator = %s")
+        params.append(operator.strip())
+    if start_time:
+        clauses.append("created_at >= %s::timestamptz")
+        params.append(start_time.strip())
+    if end_time:
+        clauses.append("created_at <= %s::timestamptz")
+        params.append(end_time.strip())
+
+    cond = f"where {' and '.join(clauses)}" if clauses else ""
+    rows = fetch_rows(
+        f"""
+        select operator, role, action, resource_type, resource_id, payload, created_at
+        from amilyhub.audit_logs
+        {cond}
+        order by created_at desc, id desc
+        limit %s
+        """,
+        tuple(params + [limit]),
+    )
+    return {"ok": True, "data": rows, "page": {"page": 1, "page_size": len(rows), "total": len(rows)}}
 
 
 @app.get("/api/v1/dashboard/summary", response_model=DashboardSummaryResponse)
