@@ -364,7 +364,7 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
     });
     return ok({
       items: r.data.map((x) => ({
-        id: String(x.id ?? "-"),
+        id: String(x.source_row_hash ?? x.id ?? "-"),
         studentName: x.student_name ?? "-",
         className: x.class_name ?? "-",
         courseName: x.course_name ?? "-",
@@ -378,6 +378,16 @@ export async function getAttendance(query: AttendanceQuery): Promise<ServiceResu
       pageSize: r.page.page_size,
       total: r.page.total,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getAttendanceDetail(sourceId: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await getJson<ApiObj<any>>(`/rollcalls/${encodeURIComponent(sourceId)}`);
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
     throw e;

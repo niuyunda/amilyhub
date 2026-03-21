@@ -1198,6 +1198,34 @@ def list_rollcalls(
     return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total or {}).get('c', 0) or 0)}}
 
 
+@app.get("/api/v1/rollcalls/{source_id}", response_model=ObjectResponse)
+def get_rollcall_detail(source_id: str):
+    row = fetch_one(
+        """
+        select
+          h.id,
+          h.source_id,
+          coalesce(h.raw_json->>'studentName','-') as student_name,
+          coalesce(h.raw_json->>'className','-') as class_name,
+          coalesce(h.raw_json->>'courseName','-') as course_name,
+          coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
+          h.checked_at as rollcall_time,
+          coalesce(h.raw_json->>'checkedDate','-') as checked_date,
+          coalesce(h.raw_json->>'timeRange','-') as class_time_range,
+          coalesce(h.raw_json->>'rollCallStateDesc','-') as status,
+          coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) as checked_purchase_lessons,
+          coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0) as checked_gift_lessons,
+          h.raw_json
+        from amilyhub.hour_cost_flows h
+        where h.source_id=%s
+        """,
+        (source_id,),
+    )
+    if not row:
+        raise ApiError(404, "ROLLCALL_NOT_FOUND", "rollcall not found")
+    return {"ok": True, "data": row}
+
+
 @app.get("/api/v1/data/integrity", response_model=IntegrityCheckResponse)
 def check_data_integrity(limit: int = Query(default=20, ge=1, le=200)):
     issues: list[IntegrityIssue] = []
