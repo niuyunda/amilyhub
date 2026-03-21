@@ -2,12 +2,17 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getOrders, getStudentProfile, updateStudent } from "@/src/services/core-service";
-import type { Order } from "@/src/types/domain";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deleteStudent, enrollStudent, getCourses, getOrders, getStudentProfile, updateStudent } from "@/src/services/core-service";
+import type { CourseItem, Order } from "@/src/types/domain";
 
 type ProfileData = {
   student: {
@@ -113,6 +118,14 @@ export default function StudentDetailPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [showAllCourses, setShowAllCourses] = useState(false);
 
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [trialOpen, setTrialOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [courseOptions, setCourseOptions] = useState<CourseItem[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState("");
+  const [selectedPricing, setSelectedPricing] = useState("");
+  const [amount, setAmount] = useState("0");
+
   const reload = async (loading = true) => {
     if (loading) setStatus("loading");
     const [profileRes, orderRes] = await Promise.all([
@@ -164,6 +177,64 @@ export default function StudentDetailPage() {
     await reload(false);
   };
 
+  const openEnrollDialog = async (mode: "报名" | "试听") => {
+    const r = await getCourses({ page: 1, pageSize: 200 });
+    if (r.kind === "forbidden") {
+      setStatus("forbidden");
+      return;
+    }
+    const items = r.data.items;
+    setCourseOptions(items);
+    const first = items[0];
+    const firstPrice = first?.pricingItems?.[0];
+    setSelectedCourse(first?.courseName ?? "");
+    setSelectedPricing(firstPrice?.name ?? "");
+    setAmount(String(firstPrice?.totalPrice ?? 0));
+    if (mode === "报名") setEnrollOpen(true);
+    else setTrialOpen(true);
+  };
+
+  const selectedCourseObj = courseOptions.find((x) => x.courseName === selectedCourse);
+  const pricingOptions = selectedCourseObj?.pricingItems ?? [];
+
+  useEffect(() => {
+    if (!selectedCourseObj) return;
+    const first = selectedCourseObj.pricingItems?.[0];
+    if (!first) return;
+    setSelectedPricing(first.name);
+    setAmount(String(first.totalPrice));
+  }, [selectedCourse]);
+
+  const submitOrder = async (mode: "报名" | "试听") => {
+    if (!selectedCourse) {
+      toast.warning("请选择课程");
+      return;
+    }
+    const amt = Math.max(0, Number(amount || "0"));
+    try {
+      setSubmitting(true);
+      await enrollStudent(studentId, {
+        courseName: selectedCourse,
+        receivableCents: Math.round(amt * 100),
+        receivedCents: Math.round(amt * 100),
+        arrearsCents: 0,
+        orderType: mode,
+      });
+      toast.success(`${mode}已创建`);
+      setEnrollOpen(false);
+      setTrialOpen(false);
+      await reload(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onDeleteStudent = async () => {
+    if (!window.confirm("确认删除当前学员及关联记录？")) return;
+    await deleteStudent(studentId, true);
+    history.back();
+  };
+
   return (
     <div className="space-y-5">
       {status === "loading" ? <LoadingState text="正在加载学员详情..." /> : null}
@@ -183,9 +254,19 @@ export default function StudentDetailPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" onClick={() => history.back()}>返回学员列表</Button>
-                <Button size="sm" variant="outline" onClick={() => void changeStatus("在读")}>恢复在读</Button>
-                <Button size="sm" variant="outline" onClick={() => void changeStatus("停课")}>停课</Button>
-                <Button size="sm" variant="outline" onClick={() => void changeStatus("结课")}>结课</Button>
+                <Button size="sm" onClick={() => void openEnrollDialog("报名")}>报名</Button>
+                <Button size="sm" variant="outline" onClick={() => void openEnrollDialog("试听")}>试听</Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline">更多操作</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => void changeStatus("在读")}>恢复在读</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void changeStatus("停课")}>停课</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void changeStatus("结课")}>结课</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void onDeleteStudent()}>删除学员</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
@@ -321,9 +402,115 @@ export default function StudentDetailPage() {
               {!(profile.consumption ?? []).length ? <div className="p-4 text-sm text-muted-foreground">暂无上课记录</div> : null}
             </section>
           ) : null}
+
+          <OrderDialog
+            open={enrollOpen}
+            onOpenChange={setEnrollOpen}
+            title="学员报名"
+            submitText="确认报名"
+            selectedCourse={selectedCourse}
+            setSelectedCourse={setSelectedCourse}
+            selectedPricing={selectedPricing}
+            setSelectedPricing={setSelectedPricing}
+            amount={amount}
+            setAmount={setAmount}
+            courseOptions={courseOptions}
+            pricingOptions={pricingOptions}
+            onSubmit={() => void submitOrder("报名")}
+            submitting={submitting}
+          />
+
+          <OrderDialog
+            open={trialOpen}
+            onOpenChange={setTrialOpen}
+            title="创建试听"
+            submitText="确认试听"
+            selectedCourse={selectedCourse}
+            setSelectedCourse={setSelectedCourse}
+            selectedPricing={selectedPricing}
+            setSelectedPricing={setSelectedPricing}
+            amount={amount}
+            setAmount={setAmount}
+            courseOptions={courseOptions}
+            pricingOptions={pricingOptions}
+            onSubmit={() => void submitOrder("试听")}
+            submitting={submitting}
+          />
         </>
       ) : null}
     </div>
+  );
+}
+
+function OrderDialog({
+  open,
+  onOpenChange,
+  title,
+  submitText,
+  selectedCourse,
+  setSelectedCourse,
+  selectedPricing,
+  setSelectedPricing,
+  amount,
+  setAmount,
+  courseOptions,
+  pricingOptions,
+  onSubmit,
+  submitting,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  submitText: string;
+  selectedCourse: string;
+  setSelectedCourse: (v: string) => void;
+  selectedPricing: string;
+  setSelectedPricing: (v: string) => void;
+  amount: string;
+  setAmount: (v: string) => void;
+  courseOptions: CourseItem[];
+  pricingOptions: Array<{ name: string; quantity: number; totalPrice: number }>;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>按课程定价标准选择条目并自动带出金额。</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <Select value={selectedCourse || "__none"} onValueChange={(v) => v !== "__none" && setSelectedCourse(v)}>
+            <SelectTrigger><SelectValue placeholder="选择课程" /></SelectTrigger>
+            <SelectContent>
+              {courseOptions.map((c) => <SelectItem key={c.id} value={c.courseName}>{c.courseName}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select
+            value={selectedPricing || "__none"}
+            onValueChange={(v) => {
+              if (v === "__none") return;
+              setSelectedPricing(v);
+              const p = pricingOptions.find((x) => x.name === v);
+              if (p) setAmount(String(p.totalPrice));
+            }}
+          >
+            <SelectTrigger><SelectValue placeholder="选择定价规则" /></SelectTrigger>
+            <SelectContent>
+              {pricingOptions.length
+                ? pricingOptions.map((p, i) => <SelectItem key={`${p.name}-${i}`} value={p.name}>{p.name}（{p.totalPrice}元/{p.quantity}课时）</SelectItem>)
+                : <SelectItem value="__none" disabled>无可用定价规则</SelectItem>}
+            </SelectContent>
+          </Select>
+          <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="金额（元）" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button disabled={submitting} onClick={onSubmit}>{submitting ? "提交中..." : submitText}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

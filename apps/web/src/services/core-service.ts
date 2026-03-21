@@ -434,11 +434,12 @@ export async function enrollStudent(studentId: string, input: {
   receivableCents: number;
   receivedCents: number;
   arrearsCents: number;
+  orderType?: "报名" | "试听";
 }): Promise<ServiceResult<any>> {
   try {
     const r = await sendJson<ApiObj<any>>("POST", `/students/${encodeURIComponent(studentId)}/enroll`, {
       course_name: input.courseName,
-      order_type: "报名",
+      order_type: input.orderType ?? "报名",
       receivable_cents: input.receivableCents,
       received_cents: input.receivedCents,
       arrears_cents: input.arrearsCents,
