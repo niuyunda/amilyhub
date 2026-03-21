@@ -1155,8 +1155,13 @@ def list_rollcalls(
         clauses.append("coalesce(h.raw_json->>'className','') ilike %s")
         params.append(f"%{class_name}%")
     if status:
-        clauses.append("coalesce(h.raw_json->>'rollCallStateDesc','-') = %s")
-        params.append(status)
+        if status == "已点名":
+            clauses.append("coalesce(h.raw_json->>'state','') = 'VALID'")
+        elif status == "已作废":
+            clauses.append("coalesce(h.raw_json->>'state','') = 'INVALID'")
+        else:
+            clauses.append("coalesce(h.raw_json->>'state','') = %s")
+            params.append(status)
     if date:
         clauses.append("to_char(h.checked_at at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
         params.append(date)
@@ -1181,9 +1186,13 @@ def list_rollcalls(
           coalesce(h.raw_json->>'className','-') as class_name,
           coalesce(h.raw_json->>'courseName','-') as course_name,
           coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
-          h.checked_at as rollcall_time,
-          coalesce(h.raw_json->>'timeRange','-') as class_time_range,
-          coalesce(h.raw_json->>'rollCallStateDesc','-') as status,
+          coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
+          to_char(coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) at time zone 'Pacific/Auckland', 'HH24:MI') as class_time_range,
+          case
+            when coalesce(h.raw_json->>'state','') = 'VALID' then '已点名'
+            when coalesce(h.raw_json->>'state','') = 'INVALID' then '已作废'
+            else '-'
+          end as status,
           (coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0)) * 100 as cost_amount_cents,
           h.raw_json->>'rollCallTeacherId' as roll_call_teacher_id,
           h.raw_json->>'classId' as class_id,
@@ -1209,10 +1218,14 @@ def get_rollcall_detail(source_id: str):
           coalesce(h.raw_json->>'className','-') as class_name,
           coalesce(h.raw_json->>'courseName','-') as course_name,
           coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
-          h.checked_at as rollcall_time,
+          coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) as rollcall_time,
           coalesce(h.raw_json->>'checkedDate','-') as checked_date,
-          coalesce(h.raw_json->>'timeRange','-') as class_time_range,
-          coalesce(h.raw_json->>'rollCallStateDesc','-') as status,
+          to_char(coalesce(to_timestamp(nullif(h.raw_json->>'checkedDate','')::bigint / 1000.0), h.checked_at) at time zone 'Pacific/Auckland', 'HH24:MI') as class_time_range,
+          case
+            when coalesce(h.raw_json->>'state','') = 'VALID' then '已点名'
+            when coalesce(h.raw_json->>'state','') = 'INVALID' then '已作废'
+            else '-'
+          end as status,
           coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) as checked_purchase_lessons,
           coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0) as checked_gift_lessons,
           h.raw_json
