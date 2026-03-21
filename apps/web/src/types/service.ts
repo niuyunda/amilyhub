@@ -43,4 +43,12 @@ export interface ScheduleQuery extends ListQuery {
   date?: string;
 }
 
+export interface AttendanceQuery extends ListQuery {
+  studentName?: string;
+  teacherName?: string;
+  className?: string;
+  status?: string;
+  date?: string;
+}
+
 export type ServiceResult<T> = { kind: "ok"; data: T } | { kind: "forbidden"; message: string };

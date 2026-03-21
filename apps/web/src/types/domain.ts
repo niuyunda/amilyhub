@@ -104,6 +104,18 @@ export interface ScheduleItem {
   status: string;
 }
 
+export interface AttendanceRecord {
+  id: string;
+  studentName: string;
+  className: string;
+  courseName: string;
+  teacherName: string;
+  rollcallTime: string;
+  classTimeRange: string;
+  status: string;
+  consumedLessons: number;
+}
+
 export interface DashboardData {
   kpi: DashboardKpi;
   todos: TodoItem[];

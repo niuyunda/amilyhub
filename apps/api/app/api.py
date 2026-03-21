@@ -1135,44 +1135,67 @@ def list_rollcalls(
     student_name: str | None = Query(default=None),
     teacher_name: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    class_name: str | None = Query(default=None),
+    date: str | None = Query(default=None),
     page: int = Query(default=1),
     page_size: int = Query(default=50),
 ):
-    clauses, params = [], []
+    page, page_size, offset = pager(page, page_size)
+    clauses, params = ["coalesce(h.raw_json->>'classId','') <> ''"], []
     if q:
-        clauses.append("(student_name ilike %s or teacher_name ilike %s or class_name ilike %s)")
+        clauses.append("(coalesce(h.raw_json->>'studentName','') ilike %s or coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','') ilike %s or coalesce(h.raw_json->>'className','') ilike %s)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
     if student_name:
-        clauses.append("student_name ilike %s")
+        clauses.append("coalesce(h.raw_json->>'studentName','') ilike %s")
         params.append(f"%{student_name}%")
     if teacher_name:
-        clauses.append("teacher_name ilike %s")
+        clauses.append("coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','') ilike %s")
         params.append(f"%{teacher_name}%")
+    if class_name:
+        clauses.append("coalesce(h.raw_json->>'className','') ilike %s")
+        params.append(f"%{class_name}%")
     if status:
-        clauses.append("status = %s")
+        clauses.append("coalesce(h.raw_json->>'rollCallStateDesc','-') = %s")
         params.append(status)
-    return list_query(
-        "rollcalls",
-        """
-        id,
-        source_row_hash,
-        student_name,
-        class_name,
-        course_name,
-        teacher_name,
-        rollcall_time,
-        class_time_range,
-        status,
-        cost_amount_cents,
-        raw_json->>'rollCallTeacherId' as roll_call_teacher_id,
-        raw_json->>'classId' as class_id,
-        raw_json->>'courseId' as course_id
+    if date:
+        clauses.append("to_char(h.checked_at at time zone 'Pacific/Auckland', 'YYYY-MM-DD') = %s")
+        params.append(date)
+
+    cond = " where " + " and ".join(clauses)
+
+    total = fetch_one(
+        f"""
+        select count(*) as c
+        from amilyhub.hour_cost_flows h
+        {cond}
         """,
-        clauses,
-        params,
-        page,
-        page_size,
+        tuple(params),
     )
+
+    rows = fetch_rows(
+        f"""
+        select
+          h.id,
+          h.source_id as source_row_hash,
+          coalesce(h.raw_json->>'studentName','-') as student_name,
+          coalesce(h.raw_json->>'className','-') as class_name,
+          coalesce(h.raw_json->>'courseName','-') as course_name,
+          coalesce(h.raw_json->>'teacherNames',h.raw_json->>'teacherName','-') as teacher_name,
+          h.checked_at as rollcall_time,
+          coalesce(h.raw_json->>'timeRange','-') as class_time_range,
+          coalesce(h.raw_json->>'rollCallStateDesc','-') as status,
+          (coalesce((h.raw_json->>'checkedPurchaseLessons')::numeric,0) + coalesce((h.raw_json->>'checkedGiftLessons')::numeric,0)) * 100 as cost_amount_cents,
+          h.raw_json->>'rollCallTeacherId' as roll_call_teacher_id,
+          h.raw_json->>'classId' as class_id,
+          h.raw_json->>'courseId' as course_id
+        from amilyhub.hour_cost_flows h
+        {cond}
+        order by h.checked_at desc nulls last, h.id desc
+        limit %s offset %s
+        """,
+        tuple(params + [page_size, offset]),
+    )
+    return {"ok": True, "data": rows, "page": {"page": page, "page_size": page_size, "total": int((total or {}).get('c', 0) or 0)}}
 
 
 @app.get("/api/v1/data/integrity", response_model=IntegrityCheckResponse)

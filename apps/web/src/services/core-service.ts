@@ -2,6 +2,7 @@ import type {
   ClassRoom,
   DashboardData,
   FinanceRecord,
+  AttendanceRecord,
   FinanceSummary,
   Order,
   ScheduleItem,
@@ -9,6 +10,7 @@ import type {
   Teacher,
 } from "@/src/types/domain";
 import type {
+  AttendanceQuery,
   ClassQuery,
   FinanceQuery,
   OrderQuery,
@@ -337,6 +339,40 @@ export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<
         roomName: x.room_name ?? "-",
         studentName: x.student_name ?? "-",
         status: x.status ?? "-",
+      })),
+      page: r.page.page,
+      pageSize: r.page.page_size,
+      total: r.page.total,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "forbidden" };
+    throw e;
+  }
+}
+
+export async function getAttendance(query: AttendanceQuery): Promise<ServiceResult<PageResult<AttendanceRecord>>> {
+  try {
+    const r = await getJson<ApiList<any>>("/rollcalls", {
+      q: query.keyword,
+      student_name: query.studentName,
+      teacher_name: query.teacherName,
+      class_name: query.className,
+      status: query.status,
+      date: query.date,
+      page: query.page,
+      page_size: query.pageSize,
+    });
+    return ok({
+      items: r.data.map((x) => ({
+        id: String(x.id ?? "-"),
+        studentName: x.student_name ?? "-",
+        className: x.class_name ?? "-",
+        courseName: x.course_name ?? "-",
+        teacherName: String(x.teacher_name ?? "-").replace(/[\[\]"]/g, ""),
+        rollcallTime: formatDateTime(x.rollcall_time),
+        classTimeRange: x.class_time_range ?? "-",
+        status: x.status ?? "-",
+        consumedLessons: Number(x.cost_amount_cents ?? 0) / 100,
       })),
       page: r.page.page,
       pageSize: r.page.page_size,
