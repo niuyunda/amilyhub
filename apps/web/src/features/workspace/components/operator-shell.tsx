@@ -91,17 +91,16 @@ function NavLink({
   const Icon = navIcons[item.key];
 
   return (
-    <Link href={item.href} onClick={onNavigate} title={item.desc}>
+    <Link href={item.href} onClick={onNavigate} title={item.desc} className="block">
       <span
         className={cn(
-          "group relative flex h-9 items-center rounded-lg text-sm transition-all",
+          "group relative flex h-8 items-center rounded-lg text-sm transition-all",
           collapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
           active
-            ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+            ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm ring-1 ring-sidebar-primary/30"
             : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         )}
       >
-        {active && !collapsed ? <span className="absolute left-0 top-2 h-5 w-0.5 rounded-full bg-sidebar-primary-foreground/70" /> : null}
         <Icon className={cn("h-[1.125rem] w-[1.125rem] shrink-0", active ? "opacity-100" : "opacity-80 group-hover:opacity-100")} />
         {collapsed ? null : <span className="truncate">{item.label}</span>}
       </span>
@@ -123,13 +122,13 @@ function NavSection({
   onNavigate?: () => void;
 }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {!collapsed ? (
         <p className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/45">
           {title}
         </p>
       ) : null}
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {items.map((item) => (
           <NavLink key={item.key} item={item} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
         ))}
@@ -154,19 +153,15 @@ function SidebarContent({
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-sidebar", collapsed ? "px-2 py-3" : "px-3 py-4")}>
       <div className={cn("flex items-center", collapsed ? "justify-center" : "gap-2 px-2")}>
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-primary/12 text-sidebar-primary">
-          <ArrowUpCircle className="h-[1.125rem] w-[1.125rem]" />
-        </div>
         {collapsed ? null : (
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-sidebar-foreground">{appConfig.shortName}</h1>
-            <p className="truncate text-[11px] text-sidebar-foreground/55">机构运营中台</p>
+            <h1 className="truncate text-sm font-semibold text-sidebar-foreground">{appConfig.shortName} 爱米粒</h1>
           </div>
         )}
       </div>
 
-      <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-        <NavSection title="工作台" items={workspaceNavItems} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
+      <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        <NavSection title="" items={workspaceNavItems} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
         <NavSection title="教务" items={educationNavItems} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
         <NavSection title="运营" items={operationNavItems} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
         <NavSection title="其他" items={otherNavItems} pathname={pathname} collapsed={collapsed} onNavigate={onNavigate} />
@@ -263,15 +258,15 @@ export function OperatorShell({
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_color-mix(in_oklch,var(--color-primary)_7%,transparent),transparent_45%),var(--color-muted)]">
+    <div className="min-h-screen bg-sidebar">
       <div className="flex min-h-screen">
         <aside
           className={cn(
-            "hidden overflow-hidden border-r border-sidebar-border/70 bg-sidebar/95 backdrop-blur transition-[width] duration-200 lg:flex",
-            isSidebarCollapsed ? "w-[4.5rem]" : "w-[17rem]",
+            "hidden overflow-hidden bg-sidebar backdrop-blur transition-[width] duration-200 md:flex",
+            isSidebarCollapsed ? "w-[4rem]" : "w-[12rem]",
           )}
         >
-          <div className={cn("h-screen transition-[width] duration-200", isSidebarCollapsed ? "w-[4.5rem]" : "w-[17rem]")}>
+          <div className={cn("h-screen transition-[width] duration-200", isSidebarCollapsed ? "w-[4rem]" : "w-[14rem]")}>
             <SidebarContent
               pathname={pathname}
               user={user}
@@ -286,11 +281,11 @@ export function OperatorShell({
             <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/70 bg-background/90 px-3 backdrop-blur sm:px-4">
               <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 lg:hidden" aria-label="打开导航菜单">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" aria-label="打开导航菜单">
                     <Menu className="h-4 w-4" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-[18rem] max-w-[88vw] border-r border-sidebar-border bg-sidebar p-0">
+                <SheetContent side="left" className="w-[14rem] max-w-[88vw] border-r border-sidebar-border bg-sidebar p-0">
                   <SheetHeader className="sr-only">
                     <SheetTitle>{appConfig.name}</SheetTitle>
                   </SheetHeader>
@@ -309,14 +304,14 @@ export function OperatorShell({
               <Button
                 variant="ghost"
                 size="icon"
-                className="hidden h-8 w-8 text-muted-foreground lg:inline-flex"
+                className="hidden h-8 w-8 text-muted-foreground md:inline-flex"
                 onClick={() => setIsSidebarCollapsed((value) => !value)}
                 aria-label="切换侧边栏"
               >
                 <PanelLeft className="h-4 w-4" />
               </Button>
 
-              <Separator orientation="vertical" className="hidden h-5 lg:block" />
+              <Separator orientation="vertical" className="hidden h-5 md:block" />
 
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-semibold text-foreground">{current.title}</h1>
@@ -348,9 +343,7 @@ export function OperatorShell({
                   <Bell className="h-4 w-4" />
                 </Button>
 
-                <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border/70 bg-muted/30">
-                  <ThemeToggle />
-                </div>
+                <ThemeToggle className="h-8 w-8 rounded-md border-border/70 bg-muted/30 hover:bg-muted/50" />
               </div>
             </header>
 
