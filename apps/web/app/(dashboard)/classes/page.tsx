@@ -9,7 +9,6 @@ import { PageHeader } from "@/components/common/page-header";
 import { Pager } from "@/components/common/pager";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -126,7 +125,11 @@ export default function ClassesPage() {
         <>
           <Card>
             <CardContent className="p-4">
-              <DataTable rows={rows} columns={columns} />
+              <DataTable
+                rows={rows}
+                columns={columns}
+                getRowKey={(row, index) => `${row.sourceClassId ?? row.id}-${row.id}-${index}`}
+              />
             </CardContent>
           </Card>
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />

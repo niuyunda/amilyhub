@@ -418,17 +418,7 @@ export default function StudentsPage() {
       <PageHeader
         title="学员管理"
         description="查看学员信息、学习状态与最近课消情况。"
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={openEdit}>
-              编辑学员
-            </Button>
-            <Button variant="outline" onClick={() => void openEnroll()}>
-              报名课程
-            </Button>
-            <Button onClick={openCreate}>新增学员</Button>
-          </div>
-        }
+        actions={<Button onClick={openCreate}>新增学员</Button>}
       />
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
