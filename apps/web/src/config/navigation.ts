@@ -31,7 +31,7 @@ export const coreNavItems: NavItem[] = [
   { key: "attendance", label: "上课记录", href: "/attendance", desc: "考勤与消课记录" },
   { key: "courses", label: "课程管理", href: "/courses", desc: "课程体系与教材管理" },
   { key: "auditLogs", label: "审计日志", href: "/audit-logs", desc: "关键操作审计追踪" },
-  { key: "rbac", label: "RBAC 权限", href: "/rbac", desc: "角色权限查看与维护" },
+  { key: "rbac", label: "权限管理", href: "/rbac", desc: "角色权限查看与维护" },
 ];
 
 export const pageMetaMap: Record<string, { title: string; desc: string }> = Object.fromEntries(

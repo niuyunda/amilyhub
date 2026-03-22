@@ -10,6 +10,7 @@ import {
   MoreVertical,
   Plus,
   RefreshCw,
+  Search,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -20,8 +21,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -47,6 +51,7 @@ type DashboardStatus = "loading" | "ready" | "error" | "forbidden";
 type MetricTrend = "up" | "down";
 type RangeKey = "90d" | "30d" | "7d";
 type ViewTab = "outline" | "performance" | "personnel" | "documents";
+type DashboardColumnKey = "target" | "limit" | "reviewer";
 
 type MetricCardData = {
   title: string;
@@ -86,6 +91,10 @@ const initialOutlineRows: OutlineRow[] = [
   { id: "r9", title: "Overview of EMR's Innovative Solutions", type: "Technical content", target: 7, limit: 23, reviewer: "", tab: "documents" },
   { id: "r10", title: "Advanced Algorithms and Machine Learning", type: "Narrative", target: 30, limit: 28, reviewer: "", tab: "documents" },
 ];
+
+function createRowId() {
+  return `r${Math.random().toString(36).slice(2, 8)}`;
+}
 
 const chartDataByRange: Record<RangeKey, { labels: string[]; upper: number[]; lower: number[] }> = {
   "90d": {
@@ -143,7 +152,13 @@ export default function DashboardPage() {
   const [viewTab, setViewTab] = useState<ViewTab>("outline");
   const [rows, setRows] = useState<OutlineRow[]>(initialOutlineRows);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [showReviewer, setShowReviewer] = useState(true);
+  const [rowKeyword, setRowKeyword] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [visibleColumns, setVisibleColumns] = useState<Record<DashboardColumnKey, boolean>>({
+    target: true,
+    limit: true,
+    reviewer: true,
+  });
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -207,10 +222,32 @@ export default function DashboardPage() {
     ];
   }, [data]);
 
-  const visibleRows = useMemo(() => {
+  const sectionRows = useMemo(() => {
     if (viewTab === "outline") return rows;
     return rows.filter((row) => row.tab === viewTab);
   }, [rows, viewTab]);
+
+  const sectionTypes = useMemo(() => {
+    return Array.from(new Set(sectionRows.map((row) => row.type))).sort((left, right) => left.localeCompare(right));
+  }, [sectionRows]);
+
+  useEffect(() => {
+    if (typeFilter !== "all" && !sectionTypes.includes(typeFilter)) {
+      setTypeFilter("all");
+    }
+  }, [sectionTypes, typeFilter]);
+
+  const visibleRows = useMemo(() => {
+    const query = rowKeyword.trim().toLowerCase();
+    return sectionRows.filter((row) => {
+      const matchesType = typeFilter === "all" || row.type === typeFilter;
+      const matchesQuery =
+        !query ||
+        row.title.toLowerCase().includes(query) ||
+        row.reviewer.toLowerCase().includes(query);
+      return matchesType && matchesQuery;
+    });
+  }, [sectionRows, rowKeyword, typeFilter]);
 
   const tabCountMap = useMemo(() => {
     return {
@@ -222,6 +259,12 @@ export default function DashboardPage() {
   }, [rows]);
 
   const allSelected = visibleRows.length > 0 && visibleRows.every((row) => selectedIds.includes(row.id));
+  const selectedInView = visibleRows.filter((row) => selectedIds.includes(row.id)).length;
+  const tableColumnCount =
+    5 +
+    (visibleColumns.target ? 1 : 0) +
+    (visibleColumns.limit ? 1 : 0) +
+    (visibleColumns.reviewer ? 1 : 0);
 
   function toggleRowSelection(rowId: string) {
     setSelectedIds((previous) => (previous.includes(rowId) ? previous.filter((id) => id !== rowId) : [...previous, rowId]));
@@ -247,29 +290,52 @@ export default function DashboardPage() {
     setRows((previous) => previous.map((row) => (row.id === rowId ? { ...row, reviewer } : row)));
   }
 
+  function moveRow(rowId: string, direction: "up" | "down") {
+    const visibleIds = visibleRows.map((row) => row.id);
+    const currentVisibleIndex = visibleIds.indexOf(rowId);
+    if (currentVisibleIndex === -1) return;
+
+    const targetVisibleIndex = direction === "up" ? currentVisibleIndex - 1 : currentVisibleIndex + 1;
+    const targetRowId = visibleIds[targetVisibleIndex];
+    if (!targetRowId) return;
+
+    setRows((previous) => {
+      const index = previous.findIndex((row) => row.id === rowId);
+      const nextIndex = previous.findIndex((row) => row.id === targetRowId);
+      if (index === -1 || nextIndex === -1) return previous;
+      const copied = [...previous];
+      [copied[index], copied[nextIndex]] = [copied[nextIndex], copied[index]];
+      return copied;
+    });
+  }
+
+  function toggleColumn(column: DashboardColumnKey) {
+    setVisibleColumns((previous) => ({ ...previous, [column]: !previous[column] }));
+  }
+
   function addSection() {
-    const nextId = `r${rows.length + 1}`;
+    const nextId = createRowId();
     setRows((previous) => [
       ...previous,
       {
         id: nextId,
-        title: `New section ${rows.length + 1}`,
+        title: `New section ${previous.length + 1}`,
         type: "Narrative",
         target: 10,
         limit: 10,
         reviewer: "",
-        tab: "outline",
+        tab: viewTab === "outline" ? "outline" : viewTab,
       },
     ]);
     toast.success("新分节已添加");
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex justify-end">
         <Button
           variant="outline"
-          className="h-8 rounded-md border-border/70 px-3"
+          className="h-8 rounded-md border-border/70 bg-background/70 px-3"
           onClick={() => {
             load().then(() => toast.success("Dashboard refreshed"));
           }}
@@ -334,6 +400,8 @@ export default function DashboardPage() {
                     onClick={() => {
                       setViewTab(tab.key);
                       setSelectedIds([]);
+                      setTypeFilter("all");
+                      setRowKeyword("");
                     }}
                   >
                     {tab.label}
@@ -356,9 +424,26 @@ export default function DashboardPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
-                    <DropdownMenuItem onClick={() => setShowReviewer((value) => !value)}>
-                      {showReviewer ? "Hide reviewer column" : "Show reviewer column"}
-                    </DropdownMenuItem>
+                    <DropdownMenuLabel>显示列</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuCheckboxItem
+                      checked={visibleColumns.target}
+                      onCheckedChange={() => toggleColumn("target")}
+                    >
+                      Target
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                      checked={visibleColumns.limit}
+                      onCheckedChange={() => toggleColumn("limit")}
+                    >
+                      Limit
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                      checked={visibleColumns.reviewer}
+                      onCheckedChange={() => toggleColumn("reviewer")}
+                    >
+                      Reviewer
+                    </DropdownMenuCheckboxItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button variant="outline" className="h-8 rounded-md px-3" onClick={addSection}>
@@ -366,6 +451,31 @@ export default function DashboardPage() {
                   Add Section
                 </Button>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-card p-2">
+              <div className="relative min-w-56 flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={rowKeyword}
+                  onChange={(event) => setRowKeyword(event.target.value)}
+                  placeholder="Search section title / reviewer"
+                  className="h-8 rounded-md border-transparent bg-muted/50 pl-8 shadow-none hover:bg-muted/70 focus-visible:border-border focus-visible:bg-background"
+                />
+              </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="h-8 w-44 rounded-md">
+                  <SelectValue placeholder="Section type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {sectionTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="overflow-hidden rounded-lg border bg-card">
@@ -385,105 +495,144 @@ export default function DashboardPage() {
                       </TableHead>
                       <TableHead>Header</TableHead>
                       <TableHead>Section Type</TableHead>
-                      <TableHead className="text-right">Target</TableHead>
-                      <TableHead className="text-right">Limit</TableHead>
-                      {showReviewer ? <TableHead>Reviewer</TableHead> : null}
+                      {visibleColumns.target ? <TableHead className="text-right">Target</TableHead> : null}
+                      {visibleColumns.limit ? <TableHead className="text-right">Limit</TableHead> : null}
+                      {visibleColumns.reviewer ? <TableHead>Reviewer</TableHead> : null}
                       <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleRows.map((row) => {
-                      const selected = selectedIds.includes(row.id);
-                      return (
-                        <TableRow key={row.id} className={selected ? "bg-muted/50" : ""}>
-                          <TableCell>
-                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
-                              <GripVertical className="h-3.5 w-3.5" />
-                            </button>
-                          </TableCell>
-                          <TableCell>
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleRowSelection(row.id)}
-                              className="h-4 w-4 rounded border-border"
-                              aria-label={`Select ${row.title}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <button type="button" className="text-left text-sm font-medium hover:underline">
-                              {row.title}
-                            </button>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="rounded-full text-muted-foreground">
-                              {row.type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              value={row.target}
-                              onChange={(event) => updateRowNumber(row.id, "target", event.target.value)}
-                              className="ml-auto h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-muted/60 focus-visible:border-border"
-                              inputMode="numeric"
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              value={row.limit}
-                              onChange={(event) => updateRowNumber(row.id, "limit", event.target.value)}
-                              className="ml-auto h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-muted/60 focus-visible:border-border"
-                              inputMode="numeric"
-                            />
-                          </TableCell>
-                          {showReviewer ? (
+                    {visibleRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={tableColumnCount} className="py-8 text-center text-sm text-muted-foreground">
+                          No sections match your current filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      visibleRows.map((row, rowIndex) => {
+                        const selected = selectedIds.includes(row.id);
+                        const isFirst = rowIndex === 0;
+                        const isLast = rowIndex === visibleRows.length - 1;
+                        return (
+                          <TableRow key={row.id} className={selected ? "bg-muted/50" : ""}>
                             <TableCell>
-                              {row.reviewer ? (
-                                <span className="text-sm">{row.reviewer}</span>
-                              ) : (
-                                <Select value={row.reviewer || "unassigned"} onValueChange={(value) => updateReviewer(row.id, value === "unassigned" ? "" : value)}>
-                                  <SelectTrigger className="h-8 w-40 rounded-md">
-                                    <SelectValue placeholder="Assign reviewer" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="unassigned">Assign reviewer</SelectItem>
-                                    <SelectItem value="Eddie Lake">Eddie Lake</SelectItem>
-                                    <SelectItem value="Jamik Tashpulatov">Jamik Tashpulatov</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              )}
+                              <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                                <GripVertical className="h-3.5 w-3.5" />
+                              </button>
                             </TableCell>
-                          ) : null}
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuItem onClick={() => toast.success(`已复制: ${row.title}`)}>Duplicate</DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => {
-                                    setRows((previous) => previous.filter((item) => item.id !== row.id));
-                                    setSelectedIds((previous) => previous.filter((id) => id !== row.id));
-                                    toast.success("已删除分节");
-                                  }}
-                                >
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleRowSelection(row.id)}
+                                className="h-4 w-4 rounded border-border"
+                                aria-label={`Select ${row.title}`}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <button type="button" className="text-left text-sm font-medium hover:underline">
+                                {row.title}
+                              </button>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="rounded-full text-muted-foreground">
+                                {row.type}
+                              </Badge>
+                            </TableCell>
+                            {visibleColumns.target ? (
+                              <TableCell className="text-right">
+                                <Input
+                                  value={row.target}
+                                  onChange={(event) => updateRowNumber(row.id, "target", event.target.value)}
+                                  className="ml-auto h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-muted/60 focus-visible:border-border"
+                                  inputMode="numeric"
+                                />
+                              </TableCell>
+                            ) : null}
+                            {visibleColumns.limit ? (
+                              <TableCell className="text-right">
+                                <Input
+                                  value={row.limit}
+                                  onChange={(event) => updateRowNumber(row.id, "limit", event.target.value)}
+                                  className="ml-auto h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-muted/60 focus-visible:border-border"
+                                  inputMode="numeric"
+                                />
+                              </TableCell>
+                            ) : null}
+                            {visibleColumns.reviewer ? (
+                              <TableCell>
+                                {row.reviewer ? (
+                                  <span className="text-sm">{row.reviewer}</span>
+                                ) : (
+                                  <Select value={row.reviewer || "unassigned"} onValueChange={(value) => updateReviewer(row.id, value === "unassigned" ? "" : value)}>
+                                    <SelectTrigger className="h-8 w-40 rounded-md">
+                                      <SelectValue placeholder="Assign reviewer" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="unassigned">Assign reviewer</SelectItem>
+                                      <SelectItem value="Eddie Lake">Eddie Lake</SelectItem>
+                                      <SelectItem value="Jamik Tashpulatov">Jamik Tashpulatov</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </TableCell>
+                            ) : null}
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-44">
+                                  <DropdownMenuItem disabled={isFirst} onClick={() => moveRow(row.id, "up")}>
+                                    Move up
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem disabled={isLast} onClick={() => moveRow(row.id, "down")}>
+                                    Move down
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setRows((previous) => {
+                                        const index = previous.findIndex((item) => item.id === row.id);
+                                        if (index === -1) return previous;
+                                        const copy: OutlineRow = {
+                                          ...row,
+                                          id: createRowId(),
+                                          title: `${row.title} copy`,
+                                        };
+                                        const next = [...previous];
+                                        next.splice(index + 1, 0, copy);
+                                        return next;
+                                      });
+                                      toast.success("已复制分节");
+                                    }}
+                                  >
+                                    Duplicate
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => {
+                                      setRows((previous) => previous.filter((item) => item.id !== row.id));
+                                      setSelectedIds((previous) => previous.filter((id) => id !== row.id));
+                                      toast.success("已删除分节");
+                                    }}
+                                  >
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
                   </TableBody>
                 </Table>
               </div>
               <div className="flex items-center justify-between border-t bg-background px-4 py-2 text-sm text-muted-foreground">
-                <span>{selectedIds.length} of {visibleRows.length} row(s) selected.</span>
+                <span>{selectedInView} of {visibleRows.length} row(s) selected.</span>
                 <span>Page 1 of 1</span>
               </div>
             </div>
