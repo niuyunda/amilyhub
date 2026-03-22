@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { AUTH_COOKIE_NAME, getAuthFromCookieString } from "@/lib/auth";
+import { appConfig } from "@/src/config/app";
+import { getOperatorSessionFromRequest } from "@/src/features/auth/session";
 
 // 需要登录才能访问的路径前缀
 const PROTECTED_PREFIXES = ["/dashboard", "/students", "/teachers", "/classes", "/courses", "/schedules", "/attendance", "/finance", "/orders"];
@@ -9,10 +10,9 @@ const PROTECTED_PREFIXES = ["/dashboard", "/students", "/teachers", "/classes", 
 // 已登录用户不应访问的路径（如登录页）
 const AUTH_ONLY_PATHS = ["/login"];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const cookieHeader = request.headers.get("cookie");
-  const user = getAuthFromCookieString(cookieHeader);
+  const user = await getOperatorSessionFromRequest(request);
 
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   const isAuthOnly = AUTH_ONLY_PATHS.some((path) => pathname.startsWith(path));
@@ -26,7 +26,7 @@ export function middleware(request: NextRequest) {
 
   // 已登录访问登录页 → 重定向到仪表板
   if (isAuthOnly && user) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL(appConfig.defaultProtectedPath, request.url));
   }
 
   return NextResponse.next();

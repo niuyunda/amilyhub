@@ -13,12 +13,13 @@ import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/st
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getOrders } from "@/src/services/core-service";
+import { createRenewalOrder, getOrders, getStudents, refundOrder, voidOrder } from "@/src/services/core-service";
 import type { Order } from "@/src/types/domain";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
 export default function OrdersPage() {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "forbidden">("loading");
@@ -30,7 +31,25 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "待支付" | "已支付" | "已作废">("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "报名" | "续费" | "退费">("all");
   const [selected, setSelected] = useState<Order | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Renewal dialog
+  const [renewOpen, setRenewOpen] = useState(false);
+  const [renewStudentId, setRenewStudentId] = useState("");
+  const [renewStudentName, setRenewStudentName] = useState("");
+  const [renewAmount, setRenewAmount] = useState("0");
+  const [renewSubmitting, setRenewSubmitting] = useState(false);
+
+  // Void dialog
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidOrder_, setVoidOrder] = useState<Order | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidSubmitting, setVoidSubmitting] = useState(false);
+
+  // Refund dialog
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundOrder_, setRefundOrder] = useState<Order | null>(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
@@ -58,6 +77,88 @@ export default function OrdersPage() {
     });
   }, [load]);
 
+  const openRenew = async () => {
+    setRenewAmount("0");
+    setRenewStudentId("");
+    setRenewStudentName("");
+    setRenewOpen(true);
+  };
+
+  const submitRenew = async () => {
+    if (!renewStudentId.trim()) {
+      toast.warning("请填写学员ID");
+      return;
+    }
+    const amount = Math.max(0, Number(renewAmount || "0"));
+    if (amount <= 0) {
+      toast.warning("请填写正确的续费金额");
+      return;
+    }
+    setRenewSubmitting(true);
+    try {
+      const result = await createRenewalOrder({
+        studentId: renewStudentId.trim(),
+        receivableCents: Math.round(amount * 100),
+        paidCents: Math.round(amount * 100),
+        arrearsCents: 0,
+      });
+      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
+      toast.success("续费订单创建成功");
+      setRenewOpen(false);
+      await load(1);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "续费失败");
+    } finally {
+      setRenewSubmitting(false);
+    }
+  };
+
+  const openVoid = (order: Order) => {
+    setVoidOrder(order);
+    setVoidReason("");
+    setVoidOpen(true);
+  };
+
+  const submitVoid = async () => {
+    if (!voidOrder_) return;
+    setVoidSubmitting(true);
+    try {
+      const result = await voidOrder(voidOrder_.orderNo, voidReason.trim() || undefined);
+      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
+      toast.success(`订单 ${voidOrder_.orderNo} 已作废`);
+      setVoidOpen(false);
+      setSelected(null);
+      await load(1);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "作废失败");
+    } finally {
+      setVoidSubmitting(false);
+    }
+  };
+
+  const openRefund = (order: Order) => {
+    setRefundOrder(order);
+    setRefundReason("");
+    setRefundOpen(true);
+  };
+
+  const submitRefund = async () => {
+    if (!refundOrder_) return;
+    setRefundSubmitting(true);
+    try {
+      const result = await refundOrder(refundOrder_.orderNo, refundReason.trim() || undefined);
+      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
+      toast.success(`订单 ${refundOrder_.orderNo} 已退费`);
+      setRefundOpen(false);
+      setSelected(null);
+      await load(1);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "退费失败");
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
+
   const columns: Array<ColumnDef<Order>> = useMemo(
     () => [
       { key: "orderNo", title: "订单号" },
@@ -72,6 +173,19 @@ export default function OrdersPage() {
       { key: "paidYuan", title: "实收金额（元）" },
       { key: "arrearsYuan", title: "欠费金额（元）" },
       { key: "createdAt", title: "创建时间" },
+      {
+        key: "actions", title: "操作",
+        render: (row) => (
+          <div className="flex gap-1 flex-wrap">
+            {row.status !== "已作废" && (
+              <>
+                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openVoid(row); }}>作废</Button>
+                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openRefund(row); }}>退费</Button>
+              </>
+            )}
+          </div>
+        ),
+      },
     ],
     [],
   );
@@ -83,16 +197,7 @@ export default function OrdersPage() {
         description="统一管理报名、续费、退费订单。"
         actions={
           <>
-            <Button onClick={() => toast.success("新建订单（演示）")}>新建订单</Button>
-            <Button variant="outline" onClick={() => toast.success("收款（演示）")}>
-              收款
-            </Button>
-            <Button variant="outline" onClick={() => toast.success("退费（演示）")}>
-              退费
-            </Button>
-            <Button variant="destructive" onClick={() => setConfirmOpen(true)}>
-              作废
-            </Button>
+            <Button onClick={() => void openRenew()}>新建订单</Button>
           </>
         }
       />
@@ -111,9 +216,7 @@ export default function OrdersPage() {
         </FilterField>
         <FilterField label="订单状态">
           <Select value={statusFilter} onValueChange={(value: "all" | "待支付" | "已支付" | "已作废") => setStatusFilter(value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="全部状态" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="全部状态" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部状态</SelectItem>
               <SelectItem value="待支付">待支付</SelectItem>
@@ -124,9 +227,7 @@ export default function OrdersPage() {
         </FilterField>
         <FilterField label="订单类型">
           <Select value={typeFilter} onValueChange={(value: "all" | "报名" | "续费" | "退费") => setTypeFilter(value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="全部类型" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="全部类型" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部类型</SelectItem>
               <SelectItem value="报名">报名</SelectItem>
@@ -146,14 +247,6 @@ export default function OrdersPage() {
           <Card>
             <CardContent className="space-y-3 p-4">
               <DataTable rows={rows} columns={columns} onRowClick={(row) => setSelected(row)} />
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => toast.success("打印（演示）")}>
-                  打印
-                </Button>
-                <Button variant="outline" onClick={() => toast.success("导出订单（演示）")}>
-                  导出订单
-                </Button>
-              </div>
             </CardContent>
           </Card>
           <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
@@ -175,14 +268,84 @@ export default function OrdersPage() {
         ) : null}
       </DetailSheet>
 
-      <ConfirmActionDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="确认作废订单"
-        description="作废操作不可撤销，请确认订单信息无误后继续。"
-        confirmText="确认作废"
-        onConfirm={() => toast.success("已作废订单（演示）")}
-      />
+      {/* Renewal dialog */}
+      <Dialog open={renewOpen} onOpenChange={setRenewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建订单（续费）</DialogTitle>
+            <DialogDescription>为学员创建一笔续费订单。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="学员ID（source_student_id）"
+              value={renewStudentId}
+              onChange={(e) => setRenewStudentId(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="续费金额（元）"
+              value={renewAmount}
+              onChange={(e) => setRenewAmount(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenewOpen(false)}>取消</Button>
+            <Button disabled={renewSubmitting} onClick={() => void submitRenew()}>
+              {renewSubmitting ? "提交中..." : "确认创建"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void dialog */}
+      <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认作废订单</DialogTitle>
+            <DialogDescription>
+              确定要作废订单 <strong>{voidOrder_?.orderNo}</strong> 吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="作废原因（可选）"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidOpen(false)}>取消</Button>
+            <Button variant="destructive" disabled={voidSubmitting} onClick={() => void submitVoid()}>
+              {voidSubmitting ? "作废中..." : "确认作废"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refund dialog */}
+      <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认退费订单</DialogTitle>
+            <DialogDescription>
+              确定要为学员退费订单 <strong>{refundOrder_?.orderNo}</strong> 吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="退费原因（可选）"
+              value={refundReason}
+              onChange={(e) => setRefundReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRefundOpen(false)}>取消</Button>
+            <Button variant="destructive" disabled={refundSubmitting} onClick={() => void submitRefund()}>
+              {refundSubmitting ? "退费中..." : "确认退费"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

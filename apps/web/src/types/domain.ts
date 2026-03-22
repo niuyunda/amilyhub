@@ -10,6 +10,7 @@ export interface DashboardKpi {
   studentTotal: number;
   activeStudents: number;
   monthlyOrders: number;
+  monthlyClasses: number;
   monthlyIncomeYuan: number;
   monthlyConsumedHours: number;
 }

@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 
-export default function HomePage() {
-  redirect("/login");
+import { appConfig } from "@/src/config/app";
+import { getCurrentOperatorSession } from "@/src/features/auth/session";
+
+export default async function HomePage() {
+  const session = await getCurrentOperatorSession();
+  redirect(session ? appConfig.defaultProtectedPath : "/login");
 }

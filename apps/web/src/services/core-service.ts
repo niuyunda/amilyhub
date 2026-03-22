@@ -153,6 +153,7 @@ export async function getDashboard(): Promise<ServiceResult<DashboardData>> {
         studentTotal: Number(s.data.students ?? 0),
         activeStudents: Number(s.data.active_students ?? 0),
         monthlyOrders: Number(s.data.orders ?? 0),
+        monthlyClasses: Number(s.data.monthly_classes ?? 0),
         monthlyIncomeYuan: toYuan(Number(s.data.income_cents ?? 0)),
         monthlyConsumedHours: Number(s.data.hour_cost_flows ?? 0),
       },
@@ -516,6 +517,12 @@ export async function createStudent(input: {
   gender?: "男" | "女";
   birthday?: string;
   status?: "在读" | "停课" | "结课";
+  source?: string;
+  grade?: string;
+  school?: string;
+  tags?: string[];
+  followUpPerson?: string;
+  eduManager?: string;
 }): Promise<ServiceResult<any>> {
   try {
     const payload = {
@@ -525,6 +532,12 @@ export async function createStudent(input: {
       gender: input.gender,
       birthday: input.birthday,
       status: input.status,
+      source: input.source,
+      grade: input.grade,
+      school: input.school,
+      tags: input.tags,
+      follow_up_person: input.followUpPerson,
+      edu_manager: input.eduManager,
     };
     const r = await sendJson<ApiObj<any>>("POST", "/students", payload);
     return ok(r.data);
@@ -540,6 +553,12 @@ export async function updateStudent(studentId: string, input: {
   gender?: "男" | "女";
   birthday?: string;
   status?: "在读" | "停课" | "结课";
+  source?: string;
+  grade?: string;
+  school?: string;
+  tags?: string[];
+  followUpPerson?: string;
+  eduManager?: string;
 }): Promise<ServiceResult<any>> {
   try {
     const payload = {
@@ -548,6 +567,12 @@ export async function updateStudent(studentId: string, input: {
       gender: input.gender,
       birthday: input.birthday,
       status: input.status,
+      source: input.source,
+      grade: input.grade,
+      school: input.school,
+      tags: input.tags,
+      follow_up_person: input.followUpPerson,
+      edu_manager: input.eduManager,
     };
     const r = await sendJson<ApiObj<any>>("PUT", `/students/${encodeURIComponent(studentId)}`, payload);
     return ok(r.data);
@@ -609,9 +634,34 @@ export async function createRenewalOrder(input: {
   }
 }
 
+export async function voidOrder(sourceOrderId: string, reason?: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", `/orders/${encodeURIComponent(sourceOrderId)}/void`, {
+      reason: reason ?? "manual_void",
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function refundOrder(sourceOrderId: string, reason?: string): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", `/orders/${encodeURIComponent(sourceOrderId)}/refund`, {
+      reason: reason ?? "manual_refund",
+    });
+    return ok(r.data);
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
 export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<PageResult<ScheduleItem>>> {
   try {
-    const r = await getJson<ApiList<any>>("/schedules", {
+    // Use hour_cost_flows as primary data source (actual attendance records from wheat)
+    const r = await getJson<ApiList<any>>("/schedules-hcf", {
       view: query.view,
       q: query.keyword,
       date: query.date,
@@ -634,6 +684,20 @@ export async function getSchedules(query: ScheduleQuery): Promise<ServiceResult<
       pageSize: r.page.page_size,
       total: r.page.total,
     });
+  } catch (e) {
+    if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
+    throw e;
+  }
+}
+
+export async function confirmRollcall(sourceId: string, payload: {
+  status: string;
+  operator?: string;
+  reason?: string;
+}): Promise<ServiceResult<any>> {
+  try {
+    const r = await sendJson<ApiObj<any>>("POST", `/rollcalls/${encodeURIComponent(sourceId)}/confirm`, payload);
+    return ok(r.data);
   } catch (e) {
     if (e instanceof Error && e.message === "FORBIDDEN") return { kind: "forbidden", message: "无权限执行该操作" };
     throw e;

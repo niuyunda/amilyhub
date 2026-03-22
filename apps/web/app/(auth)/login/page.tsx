@@ -6,7 +6,6 @@ import { Suspense, useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AUTH_COOKIE_NAME, validateCredentials } from "@/lib/auth";
 import styles from "./login.module.css";
 
 // ─── 读取 URL 参数的独立组件 ─────────────────────────────────────────────────
@@ -34,21 +33,32 @@ function LoginForm({ redirectTo }: { redirectTo: string }) {
     if (isLoading) return;
     setError("");
     setIsLoading(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+          password,
+          redirectTo,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; redirectTo?: string }
+        | null;
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+      if (!response.ok) {
+        setError(payload?.error ?? "登录失败，请稍后重试");
+        return;
+      }
 
-    const user = validateCredentials(username.trim(), password);
-
-    if (!user) {
-      setError("账号或密码错误，请重试");
+      router.replace(payload?.redirectTo ?? redirectTo);
+      router.refresh();
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString();
-    document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(JSON.stringify(user))}; path=/; expires=${expires}; SameSite=Lax`;
-
-    router.push(redirectTo);
   }
 
   function handleFormSubmit(e: React.FormEvent) {

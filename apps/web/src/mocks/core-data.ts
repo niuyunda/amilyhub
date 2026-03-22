@@ -1,3 +1,5 @@
+// Legacy mock fixtures retained for reference while canonical code moves to src/features and src/data.
+
 import type {
   ClassRoom,
   DashboardData,
@@ -12,6 +14,7 @@ export const dashboardData: DashboardData = {
     studentTotal: 286,
     activeStudents: 241,
     monthlyOrders: 74,
+    monthlyClasses: 112,
     monthlyIncomeYuan: 245320,
     monthlyConsumedHours: 1188,
   },

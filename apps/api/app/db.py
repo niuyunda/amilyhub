@@ -12,6 +12,19 @@ def get_conn():
         conn.close()
 
 
+@contextmanager
+def get_transaction_cursor():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            try:
+                yield cur
+            except Exception:
+                conn.rollback()
+                raise
+            else:
+                conn.commit()
+
+
 def fetch_rows(sql: str, params: tuple = ()):
     with get_conn() as conn:
         with conn.cursor() as cur:

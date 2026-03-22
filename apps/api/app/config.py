@@ -1,9 +1,3 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from .core.config import Settings, settings
 
-
-class Settings(BaseSettings):
-    database_url: str = "postgresql://amily:alpha128128@localhost:55432/amilyhub"
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
-
-settings = Settings()
+__all__ = ["Settings", "settings"]

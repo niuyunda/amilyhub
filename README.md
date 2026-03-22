@@ -10,7 +10,7 @@ cd apps/api
 export DATABASE_URL='postgresql://amily:alpha128128@localhost:55432/amilyhub'
 uv run python main.py
 ```
-- Swagger: `http://localhost:8000/docs`
+- Swagger: `http://localhost:18765/docs`
 
 ## 技术栈
 

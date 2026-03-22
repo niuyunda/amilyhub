@@ -20,6 +20,8 @@ def test_health_ok():
     assert r.status_code == 200
     data = r.json()
     assert data['ok'] is True
+    assert data['environment'] in {'development', 'test', 'staging', 'production'}
+    assert data['bootstrap_ready'] is True
 
 
 def test_dashboard_summary_has_extended_fields():
@@ -154,6 +156,33 @@ def test_integrity_endpoint():
     payload = r.json()
     assert payload['ok'] is True
     assert 'issues' in payload['data']
+
+
+def test_rooms_crud_flow():
+    create = client.post('/api/v1/rooms', json={
+        'name': f'Room {_uid("room")}',
+        'campus': 'North',
+        'capacity': 12,
+        'status': 'active',
+    }, headers={"x-role": "admin", "x-operator": "qa_admin"})
+    assert create.status_code == 201, create.text
+    room = create.json()['data']
+
+    listed = client.get('/api/v1/rooms', params={'q': room['name'], 'page': 1, 'page_size': 10})
+    assert listed.status_code == 200, listed.text
+    assert any(item['id'] == room['id'] for item in listed.json()['data'])
+
+    update = client.put(f"/api/v1/rooms/{room['id']}", json={
+        'capacity': 20,
+        'status': 'inactive',
+    }, headers={"x-role": "admin", "x-operator": "qa_admin"})
+    assert update.status_code == 200, update.text
+    assert update.json()['data']['capacity'] == 20
+    assert update.json()['data']['status'] == 'inactive'
+
+    delete = client.delete(f"/api/v1/rooms/{room['id']}", headers={"x-role": "admin", "x-operator": "qa_admin"})
+    assert delete.status_code == 200, delete.text
+    assert delete.json()['data']['id'] == room['id']
 
 
 def test_order_renewal_and_order_list_student_name():
