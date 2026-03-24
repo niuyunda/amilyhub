@@ -19,6 +19,9 @@ type RollcallDetail = {
   status: string;
   teaching_hours: number;
   attendance_summary: string;
+  actual_students: number;
+  total_students: number;
+  student_names: string;
   cost_amount_cents: number;
   students: Array<{
     student_name: string;
@@ -59,6 +62,9 @@ export default function AttendanceDetailPage() {
   if (state === "error") return <ErrorState message={error} />;
   if (!data) return null;
 
+  const students = data.students ?? [];
+  const hasStudentDetails = students.length > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -77,39 +83,56 @@ export default function AttendanceDetailPage() {
           <p>上课老师：{data.teacher_name || "-"}</p>
           <p>点名时间：{data.rollcall_time || "-"}</p>
           <p>授课课时：{String(data.teaching_hours ?? "-")}</p>
-          <p>实到人数：{data.attendance_summary || "-"}</p>
+          <p>出勤人数：{data.actual_students ?? 0} / {data.total_students ?? 0}</p>
+          <p>点名情况：{data.attendance_summary || "-"}</p>
           <p>课消金额：￥{((Number(data.cost_amount_cents || 0)) / 100).toFixed(2)}</p>
+          {data.student_names && data.student_names !== "-" ? (
+            <p>学员名单：{data.student_names}</p>
+          ) : null}
         </CardContent>
       </Card>
 
       <section className="space-y-2">
         <h3 className="font-medium">学员名单</h3>
-        <div className="rounded-xl border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="px-3 py-2 text-left">姓名</th>
-                <th className="px-3 py-2 text-left">消耗方式</th>
-                <th className="px-3 py-2 text-left">到课状态</th>
-                <th className="px-3 py-2 text-left">补课状态</th>
-                <th className="px-3 py-2 text-left">扣除额度</th>
-                <th className="px-3 py-2 text-left">备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data.students || []).map((s, idx) => (
-                <tr key={`${s.student_name}-${idx}`} className="border-t">
-                  <td className="px-3 py-2">{s.student_name || "-"}</td>
-                  <td className="px-3 py-2">{s.consume_way || "-"}</td>
-                  <td className="px-3 py-2">{s.arrival_status || "-"}</td>
-                  <td className="px-3 py-2">{s.makeup_status || "-"}</td>
-                  <td className="px-3 py-2">{String(s.deduct_lessons ?? 0)} 课时</td>
-                  <td className="px-3 py-2">{s.remark || "-"}</td>
+        {hasStudentDetails ? (
+          <div className="rounded-xl border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40">
+                  <th className="px-3 py-2 text-left">姓名</th>
+                  <th className="px-3 py-2 text-left">消耗方式</th>
+                  <th className="px-3 py-2 text-left">到课状态</th>
+                  <th className="px-3 py-2 text-left">补课状态</th>
+                  <th className="px-3 py-2 text-left">扣除课时</th>
+                  <th className="px-3 py-2 text-left">备注</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {students.map((s, idx) => (
+                  <tr key={`${s.student_name}-${idx}`} className="border-t">
+                    <td className="px-3 py-2">{s.student_name || "-"}</td>
+                    <td className="px-3 py-2">{s.consume_way || "-"}</td>
+                    <td className="px-3 py-2">{s.arrival_status || "-"}</td>
+                    <td className="px-3 py-2">{s.makeup_status || "-"}</td>
+                    <td className="px-3 py-2">{String(s.deduct_lessons ?? 0)} 课时</td>
+                    <td className="px-3 py-2">{s.remark || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-xl border p-6 text-center text-muted-foreground text-sm">
+            {data.student_names && data.student_names !== "-" ? (
+              <p>点名记录已同步，但小麦助教暂未提供详细名单（按学员分别记录消耗）。</p>
+            ) : (
+              <p>暂无学员明细数据。</p>
+            )}
+            {data.student_names && data.student_names !== "-" && data.student_names !== "-" ? (
+              <p className="mt-1">出勤学员：{data.student_names}</p>
+            ) : null}
+          </div>
+        )}
       </section>
     </div>
   );
