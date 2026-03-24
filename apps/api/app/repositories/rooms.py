@@ -28,6 +28,20 @@ def ensure_rooms_table() -> None:
     mark_initialized("rooms")
 
 
+def _seed_default_room() -> None:
+    """Seed a default room if the rooms table is empty."""
+    count = fetch_one("SELECT COUNT(*) AS c FROM amilyhub.rooms")
+    if count and int(count.get("c", 0) or 0) == 0:
+        with get_transaction_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO amilyhub.rooms (name, campus, capacity, status)
+                VALUES ('默认教室', '总校区', 30, 'active')
+                ON CONFLICT DO NOTHING
+                """
+            )
+
+
 def list_rooms(
     *,
     q: str | None,
@@ -37,6 +51,7 @@ def list_rooms(
     page_size: int,
 ) -> dict[str, Any]:
     ensure_rooms_table()
+    _seed_default_room()
     page, page_size, offset = pager(page, page_size)
     clauses: list[str] = []
     params: list[Any] = []
