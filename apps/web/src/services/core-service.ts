@@ -362,10 +362,10 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
     });
     return ok({
       items: r.data.map((x) => ({
-        id: String(x.id ?? "-"),
-        courseName: x.course_name ?? "-",
+        id: String(x.id ?? x.source_id ?? "-"),
+        courseName: x.name ?? "-",
         courseType: x.course_type === "一对一" ? "一对一" : "一对多",
-        chargeType: x.charge_type ?? "按课时",
+        chargeType: x.fee_type ?? "按课时",
         pricingRules: x.pricing_rules ?? "-",
         pricingItems: Array.isArray(x.pricing_items)
           ? x.pricing_items.map((p: any) => ({
@@ -374,7 +374,7 @@ export async function getCourses(query: CourseQuery): Promise<ServiceResult<Page
             totalPrice: Number(p.totalPrice ?? 0),
           }))
           : undefined,
-        activeStudents: Number(x.active_students ?? 0),
+        activeStudents: Number(x.student_num ?? 0),
         status: x.status === "停用" ? "停用" : "启用",
         validityDays: x.validity_days != null ? Number(x.validity_days) : undefined,
         description: x.description,
