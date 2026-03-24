@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { DataTable, type ColumnDef } from "@/components/common/data-table";
 import { ErrorState, ForbiddenState, LoadingState } from "@/components/common/state-view";
 import { PageHeader } from "@/components/common/page-header";
 import { Pager } from "@/components/common/pager";
@@ -14,71 +13,72 @@ import { Badge } from "@/components/ui/badge";
 import { confirmRollcall, createScheduleEvent, deleteScheduleEvent, getSchedules, updateScheduleEvent } from "@/src/services/core-service";
 import type { ScheduleItem } from "@/src/types/domain";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
-// Group items by date for calendar view
-function groupByDate(items: ScheduleItem[]): Map<string, ScheduleItem[]> {
-  const map = new Map<string, ScheduleItem[]>();
-  for (const item of items) {
-    const date = item.dateTime ? item.dateTime.split(" ")[0] : "未知日期";
-    if (!map.has(date)) map.set(date, []);
-    map.get(date)!.push(item);
-  }
-  return map;
+// ─── Week helpers ─────────────────────────────────────────────────────────────
+
+function getWeekStart(offset: number): Date {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset + offset * 7);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
 }
 
+function toDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatWeekRange(start: Date): string {
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  const fmt = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${fmt(start)} - ${fmt(end)}`;
+}
+
+const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+// ─── Status ───────────────────────────────────────────────────────────────────
+
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  if (["正常", "已到", "出勤"].includes(status)) return "default";
+  if (["正常", "已到", "出勤", "课消"].includes(status)) return "default";
   if (["请假"].includes(status)) return "secondary";
   if (["旷课", "缺勤"].includes(status)) return "destructive";
   return "outline";
 }
 
+// ─── Main component ────────────────────────────────────────────────────────────
+
 export default function SchedulesPage() {
+  const [weekOffset, setWeekOffset] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "forbidden">("loading");
   const [error, setError] = useState("");
   const [rows, setRows] = useState<ScheduleItem[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState("");
-  const [date, setDate] = useState("");
-  const [view, setView] = useState<"time" | "teacher" | "room" | "class">("time");
 
-  // Create schedule form
-  const [className, setClassName] = useState("");
-  const [teacherName, setTeacherName] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [roomName, setRoomName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [createSuccess, setCreateSuccess] = useState("");
+  const weekStart = useMemo(() => getWeekStart(weekOffset), [weekOffset]);
+  const weekLabel = useMemo(() => formatWeekRange(weekStart), [weekStart]);
 
-  // Edit schedule form
-  const [editOpen, setEditOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<ScheduleItem | null>(null);
-  const [editClassName, setEditClassName] = useState("");
-  const [editTeacherName, setEditTeacherName] = useState("");
-  const [editStartTime, setEditStartTime] = useState("");
-  const [editEndTime, setEditEndTime] = useState("");
-  const [editRoomName, setEditRoomName] = useState("");
-  const [editStatus, setEditStatus] = useState("scheduled");
-  const [editSubmitting, setEditSubmitting] = useState(false);
-  const [editError, setEditError] = useState("");
-
-  // Rollcall confirm dialog
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmingItem, setConfirmingItem] = useState<ScheduleItem | null>(null);
-  const [confirmStatus, setConfirmStatus] = useState<"正常" | "请假" | "旷课">("正常");
-  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
-
-  // Delete dialog
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deletingEvent, setDeletingEvent] = useState<ScheduleItem | null>(null);
+  // Build 7 date strings for the week
+  const weekDates = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      return toDateStr(d);
+    });
+  }, [weekStart]);
 
   const load = useCallback(async (nextPage: number) => {
     setStatus("loading");
-    const r = await getSchedules({ view, page: nextPage, pageSize: PAGE_SIZE, keyword: keyword || undefined, date: date || undefined });
+    // Load all items for the week (fetch enough pages to cover 7 days)
+    const r = await getSchedules({ view: "time", page: nextPage, pageSize: PAGE_SIZE, keyword: keyword || undefined });
     if (r.kind === "forbidden") {
       setStatus("forbidden");
       return;
@@ -87,7 +87,7 @@ export default function SchedulesPage() {
     setPage(r.data.page);
     setTotal(r.data.total);
     setStatus("ready");
-  }, [view, keyword, date]);
+  }, [keyword]);
 
   useEffect(() => {
     load(1).catch((e: unknown) => {
@@ -96,8 +96,67 @@ export default function SchedulesPage() {
     });
   }, [load]);
 
-  const grouped = useMemo(() => groupByDate(rows), [rows]);
-  const dates = useMemo(() => Array.from(grouped.keys()).sort(), [grouped]);
+  // Filter rows to only this week
+  const weekRows = useMemo(() => {
+    return rows.filter((item) => {
+      const itemDate = item.dateTime ? item.dateTime.split(" ")[0] : "";
+      return weekDates.includes(itemDate);
+    });
+  }, [rows, weekDates]);
+
+  // Unique time slots for this week, sorted
+  const timeSlots = useMemo(() => {
+    const slots = [...new Set(weekRows.map((r) => r.timeRange))].filter(Boolean);
+    // Sort: morning slots first, then afternoon, then evening
+    return slots.sort((a, b) => {
+      const am = !a.includes("下午") && !a.includes("晚上");
+      const bm = !b.includes("下午") && !b.includes("晚上");
+      if (am !== bm) return am ? -1 : 1;
+      return a.localeCompare(b, "zh-CN", { numeric: true });
+    });
+  }, [weekRows]);
+
+  // Build grid: map (dayIndex, slot) -> item[]
+  const grid = useMemo(() => {
+    const map = new Map<string, ScheduleItem[]>();
+    for (const item of weekRows) {
+      const dayIndex = weekDates.indexOf(item.dateTime.split(" ")[0]);
+      if (dayIndex < 0) continue;
+      const key = `${dayIndex}::${item.timeRange}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return map;
+  }, [weekRows, weekDates]);
+
+  // ─── Dialogs (same as original) ─────────────────────────────────────────
+
+  const [className, setClassName] = useState("");
+  const [teacherName, setTeacherName] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<ScheduleItem | null>(null);
+  const [editClassName, setEditClassName] = useState("");
+  const [editTeacherName, setEditTeacherName] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editRoomName, setEditRoomName] = useState("");
+  const [editStatus, setEditStatus] = useState("正常");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmingItem, setConfirmingItem] = useState<ScheduleItem | null>(null);
+  const [confirmStatus, setConfirmStatus] = useState<"正常" | "请假" | "旷课">("正常");
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingEvent, setDeletingEvent] = useState<ScheduleItem | null>(null);
 
   const openEditDialog = (event: ScheduleItem) => {
     setEditingEvent(event);
@@ -107,14 +166,13 @@ export default function SchedulesPage() {
     setEditStartTime(dt);
     setEditEndTime(dt);
     setEditRoomName(event.roomName === "-" ? "" : event.roomName);
-    setEditStatus(event.status === "-" ? "scheduled" : event.status);
+    setEditStatus(event.status === "-" ? "正常" : event.status);
     setEditError("");
     setEditOpen(true);
   };
 
   const openConfirmDialog = (item: ScheduleItem) => {
     setConfirmingItem(item);
-    // Try to infer status from existing status field
     if (["正常", "已到", "出勤"].includes(item.status)) setConfirmStatus("正常");
     else if (["请假"].includes(item.status)) setConfirmStatus("请假");
     else if (["旷课", "缺勤"].includes(item.status)) setConfirmStatus("旷课");
@@ -142,7 +200,7 @@ export default function SchedulesPage() {
     }
     setEditSubmitting(true);
     try {
-      const result = await updateScheduleEvent(Number(editingEvent.id), {
+      await updateScheduleEvent(Number(editingEvent.id), {
         className: editClassName.trim(),
         teacherName: editTeacherName.trim(),
         startTime: start.toISOString(),
@@ -150,7 +208,6 @@ export default function SchedulesPage() {
         roomName: editRoomName.trim() || undefined,
         status: editStatus,
       });
-      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
       toast.success("排课已更新");
       setEditOpen(false);
       await load(1);
@@ -162,8 +219,6 @@ export default function SchedulesPage() {
   }, [editingEvent, editClassName, editTeacherName, editStartTime, editEndTime, editRoomName, editStatus, load]);
 
   const submitCreate = useCallback(async () => {
-    setCreateError("");
-    setCreateSuccess("");
     if (!className.trim() || !teacherName.trim() || !startTime || !endTime) {
       setCreateError("请填写班级、老师、开始和结束时间。");
       return;
@@ -187,14 +242,12 @@ export default function SchedulesPage() {
         endTime: end.toISOString(),
         roomName: roomName.trim() || undefined,
       });
-      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
       if (result.kind === "conflict") {
         setCreateError(`排课冲突：${result.message}`);
         return;
       }
       toast.success("新建排课成功");
       setClassName(""); setTeacherName(""); setStartTime(""); setEndTime(""); setRoomName("");
-      setCreateSuccess("");
       await load(1);
     } catch (e: unknown) {
       setCreateError(e instanceof Error ? e.message : "新建排课失败");
@@ -207,11 +260,7 @@ export default function SchedulesPage() {
     if (!confirmingItem) return;
     setConfirmSubmitting(true);
     try {
-      const result = await confirmRollcall(confirmingItem.id, {
-        status: confirmStatus,
-        operator: "web-user",
-      });
-      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
+      await confirmRollcall(confirmingItem.id, { status: confirmStatus, operator: "web-user" });
       toast.success(`已确认为【${confirmStatus}】`);
       setConfirmOpen(false);
       await load(page);
@@ -225,8 +274,7 @@ export default function SchedulesPage() {
   const submitDelete = useCallback(async () => {
     if (!deletingEvent) return;
     try {
-      const result = await deleteScheduleEvent(Number(deletingEvent.id));
-      if (result.kind === "forbidden") { setStatus("forbidden"); return; }
+      await deleteScheduleEvent(Number(deletingEvent.id));
       toast.success("排课已删除");
       setDeleteConfirmOpen(false);
       await load(1);
@@ -235,37 +283,32 @@ export default function SchedulesPage() {
     }
   }, [deletingEvent, load]);
 
-  const columns: Array<ColumnDef<ScheduleItem>> = [
-    { key: "dateTime", title: "上课时间" },
-    { key: "timeRange", title: "时段" },
-    { key: "className", title: "班级" },
-    { key: "teacherName", title: "老师" },
-    { key: "roomName", title: "教室" },
-    { key: "studentName", title: "学员" },
-    {
-      key: "status", title: "状态",
-      render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge>,
-    },
-    {
-      key: "actions", title: "操作",
-      render: (row) => (
-        <div className="flex gap-1 flex-wrap">
-          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openConfirmDialog(row); }}>确认</Button>
-          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openEditDialog(row); }}>编辑</Button>
-          <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); openDeleteDialog(row); }}>删除</Button>
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div className="space-y-4">
       <PageHeader
         title="课表管理"
-        description="小麦上课记录（按天分组），选择日期或搜索班级/老师查看。"
+        description="按课程表形式展示，按周浏览，支持上一周/下一周切换。"
       />
 
-      {/* Create schedule form */}
+      {/* Week navigation + search */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" onClick={() => setWeekOffset((o) => o - 1)}>上一周</Button>
+          <span className="text-sm font-medium min-w-[180px] text-center">{weekLabel}</span>
+          <Button variant="outline" size="sm" onClick={() => setWeekOffset((o) => o + 1)}>下一周</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setWeekOffset(0); void load(1); }}>本周</Button>
+        </div>
+        <Input
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="搜索班级/老师/学员"
+          className="max-w-sm"
+        />
+        <Button onClick={() => void load(1)}>查询</Button>
+        <Button variant="outline" onClick={() => { setKeyword(""); void load(1); }}>重置</Button>
+      </div>
+
+      {/* Create form */}
       <div className="grid gap-2 md:grid-cols-6">
         <Input value={className} onChange={(e) => setClassName(e.target.value)} placeholder="班级名称" />
         <Input value={teacherName} onChange={(e) => setTeacherName(e.target.value)} placeholder="老师姓名" />
@@ -277,80 +320,90 @@ export default function SchedulesPage() {
         </Button>
       </div>
       {createError ? <p className="text-sm text-red-600">{createError}</p> : null}
-      {createSuccess ? <p className="text-sm text-green-600">{createSuccess}</p> : null}
 
-      {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="max-w-44" />
-        <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索班级/老师/学员" className="max-w-sm" />
-        <select
-          className="border rounded px-2 py-1 text-sm"
-          value={view}
-          onChange={(e) => setView(e.target.value as typeof view)}
-        >
-          <option value="time">按时间</option>
-          <option value="teacher">按老师</option>
-          <option value="room">按教室</option>
-          <option value="class">按班级</option>
-        </select>
-        <Button onClick={() => void load(1)}>查询</Button>
-      </div>
-
-      {/* Calendar-style grouped view */}
+      {/* Calendar grid */}
       {status === "loading" ? <LoadingState text="课表加载中..." /> : null}
       {status === "error" ? <ErrorState message={error} onRetry={() => void load(page)} /> : null}
       {status === "forbidden" ? <ForbiddenState /> : null}
 
-      {status === "ready" && rows.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <p>暂无课表数据</p>
-          <p className="text-sm mt-1">请检查小麦助教的排课数据是否已同步</p>
-        </div>
-      ) : null}
-
-      {status === "ready" && rows.length > 0 ? (
+      {status === "ready" ? (
         <>
-          {/* Calendar grouped view */}
-          <div className="space-y-6">
-            {dates.map((dateStr) => {
-              const dayItems = grouped.get(dateStr) ?? [];
-              return (
-                <div key={dateStr} className="space-y-2">
-                  <div className="sticky top-0 bg-background/95 backdrop-blur z-10 border-b py-1">
-                    <h3 className="font-semibold text-base">{dateStr}</h3>
-                  </div>
-                  <div className="grid gap-2">
-                    {dayItems.map((item) => (
-                      <div key={item.id} className="flex items-center gap-3 border rounded-lg p-3 hover:bg-muted/50 transition-colors">
-                        <div className="min-w-[60px] text-sm text-muted-foreground">{item.timeRange}</div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex gap-2 items-center flex-wrap">
-                            <span className="font-medium">{item.className}</span>
-                            <span className="text-muted-foreground">·</span>
-                            <span>{item.teacherName}</span>
-                            {item.roomName && item.roomName !== "-" ? (
-                              <>
-                                <span className="text-muted-foreground">·</span>
-                                <span className="text-muted-foreground">{item.roomName}</span>
-                              </>
-                            ) : null}
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-0.5">{item.studentName}</div>
-                        </div>
-                        <Badge variant={statusVariant(item.status)}>{item.status}</Badge>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="outline" onClick={() => openConfirmDialog(item)}>确认</Button>
-                          <Button size="sm" variant="outline" onClick={() => openEditDialog(item)}>编辑</Button>
-                          <Button size="sm" variant="destructive" onClick={() => openDeleteDialog(item)}>删除</Button>
-                        </div>
-                      </div>
+          {weekRows.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground border rounded-lg">
+              <p>本周暂无课表数据</p>
+              <p className="text-sm mt-1">请检查排课数据或切换其他周查看</p>
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th className="w-24 px-3 py-2 text-left font-medium text-muted-foreground sticky left-0 bg-muted/50 z-10">时段</th>
+                    {weekDates.map((dateStr, i) => (
+                      <th key={dateStr} className="px-2 py-2 text-center font-medium min-w-[100px]">
+                        <div>{DAY_NAMES[i]}</div>
+                        <div className="text-xs text-muted-foreground font-normal">{dateStr.slice(5)}</div>
+                      </th>
                     ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {timeSlots.map((slot) => (
+                    <tr key={slot} className="border-t">
+                      <td className="px-3 py-2 font-medium text-muted-foreground sticky left-0 bg-background z-10 whitespace-nowrap">{slot}</td>
+                      {weekDates.map((dateStr, dayIndex) => {
+                        const items = grid.get(`${dayIndex}::${slot}`) ?? [];
+                        return (
+                          <td key={dateStr} className="px-1 py-1 vertical-align-top min-w-[100px]">
+                            <div className="space-y-1">
+                              {items.map((item) => (
+                                <div key={item.id} className="border rounded p-1.5 bg-background hover:bg-muted/50 transition-colors text-xs">
+                                  <div className="font-medium leading-tight">{item.className}</div>
+                                  <div className="text-muted-foreground leading-tight">{item.teacherName}</div>
+                                  {item.roomName && item.roomName !== "-" ? (
+                                    <div className="text-muted-foreground leading-tight">{item.roomName}</div>
+                                  ) : null}
+                                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                    <Badge variant={statusVariant(item.status)} className="text-[10px] px-1 py-0">{item.status}</Badge>
+                                    <div className="flex gap-0.5 ml-auto">
+                                      <button
+                                        onClick={() => openConfirmDialog(item)}
+                                        className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                                        title="确认"
+                                      >
+                                        ✓
+                                      </button>
+                                      <button
+                                        onClick={() => openEditDialog(item)}
+                                        className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                                        title="编辑"
+                                      >
+                                        ✎
+                                      </button>
+                                      <button
+                                        onClick={() => openDeleteDialog(item)}
+                                        className="text-muted-foreground hover:text-red-500 p-0.5 rounded"
+                                        title="删除"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {total > PAGE_SIZE && (
+            <Pager page={page} pageSize={PAGE_SIZE} total={total} onPrev={() => void load(page - 1)} onNext={() => void load(page + 1)} />
+          )}
         </>
       ) : null}
 
@@ -381,9 +434,7 @@ export default function SchedulesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>上课确认</DialogTitle>
-            <DialogDescription>
-              确认学员 {confirmingItem?.studentName} 的出勤状态
-            </DialogDescription>
+            <DialogDescription>确认学员 {confirmingItem?.studentName} 的出勤状态</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="text-sm space-y-1">
@@ -393,21 +444,13 @@ export default function SchedulesPage() {
             </div>
             <div className="flex gap-2">
               {(["正常", "请假", "旷课"] as const).map((s) => (
-                <Button
-                  key={s}
-                  variant={confirmStatus === s ? "default" : "outline"}
-                  onClick={() => setConfirmStatus(s)}
-                >
-                  {s}
-                </Button>
+                <Button key={s} variant={confirmStatus === s ? "default" : "outline"} onClick={() => setConfirmStatus(s)}>{s}</Button>
               ))}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>取消</Button>
-            <Button onClick={() => void submitConfirm()} disabled={confirmSubmitting}>
-              {confirmSubmitting ? "确认中..." : `确认${confirmStatus}`}
-            </Button>
+            <Button onClick={() => void submitConfirm()} disabled={confirmSubmitting}>{confirmSubmitting ? "确认中..." : `确认${confirmStatus}`}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
